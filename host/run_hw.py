@@ -39,11 +39,13 @@ def main():
     krnl = pyxrt.kernel(dev, uuid, "gemm_kernel")
 
     # --- данные (INT8), C — INT32 ---
+    # Раскладка памяти = как в rtl/gemm_kernel.sv: 32-битное слово НА ЭЛЕМЕНТ
+    # (INT8 со знаковым расширением в INT32). Плотная INT8-упаковка = оптимизация.
     rng = np.random.default_rng(0xBEEF)
     A = rng.integers(-128, 128, size=(args.M, args.K), dtype=np.int8)
     B = rng.integers(-128, 128, size=(args.K, args.N), dtype=np.int8)
-    a_bytes = A.tobytes()
-    b_bytes = B.tobytes()
+    a_bytes = A.astype(np.int32).tobytes()   # 4 байта/элемент
+    b_bytes = B.astype(np.int32).tobytes()
     c_nbytes = args.M * args.N * 4  # INT32
 
     # --- буферы в глобальной памяти (group_id по порядку аргументов kernel) ---

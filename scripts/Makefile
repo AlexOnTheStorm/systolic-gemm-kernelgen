@@ -24,6 +24,19 @@ EXTRA_ARGS += --assert                  # включить проверку SVA 
 
 include $(shell cocotb-config --makefiles)/Makefile.sim
 
+# --- P4: сим ПОЛНОГО kernel (AXI-Lite + AXI-master DMA) — верификация
+#     датапата обёртки ДО железа. `make kernel [ARRAY_M=8 ARRAY_N=8 KERNEL_K=8]`
+ARRAY_M  ?= 4
+ARRAY_N  ?= 4
+KERNEL_K ?= 4
+.PHONY: kernel
+kernel:
+	@$(MAKE) clean >/dev/null 2>&1
+	@ARRAY_M=$(ARRAY_M) ARRAY_N=$(ARRAY_N) KERNEL_K=$(KERNEL_K) $(MAKE) \
+	  TOPLEVEL=gemm_kernel MODULE=test_kernel \
+	  VERILOG_SOURCES="$(CURDIR)/../rtl/pe.sv $(CURDIR)/../rtl/systolic_array.sv $(CURDIR)/../rtl/gemm_kernel.sv" \
+	  EXTRA_ARGS="--assert -GARRAY_M=$(ARRAY_M) -GARRAY_N=$(ARRAY_N)"
+
 .PHONY: waves
 waves:
 	@$(MAKE) -s

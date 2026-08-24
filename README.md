@@ -55,12 +55,17 @@ flowchart LR
 
 ## Запуск
 
-**Локально (P1–P2, нужен fpga-venv):**
+**Локально (нужен fpga-venv):**
 ```bash
 source /Users/alex/fpga-venv/bin/activate
-./scripts/run.sh sim      # self-check + coverage + SVA
-./scripts/run.sh dse      # DSE: grid + hillclimb → results/dse.json
+./scripts/run.sh sim                       # P1: self-check + coverage + SVA
+./scripts/run.sh dse                       # P2: DSE grid+hillclimb → results/dse.json
+cd scripts && make kernel                   # AXI-kernel: полный DMA-датапат vs golden
+#   make kernel ARRAY_M=8 ARRAY_N=8 KERNEL_K=8
 ```
+`make kernel` verифицирует ПОЛНУЮ обёртку (AXI-Lite control + AXI-master DMA +
+систолика + сбор + запись) в симуляции против golden — ловит баги датапата ДО
+дорогого F1-bring-up. Проверено на 4×4, 2×6, 6×3, 8×8 и разных K.
 
 **В облаке (P3–P4, Vivado/Vitis + F1) — всё из терминала, без GUI:**
 точная последовательность команд → [docs/cloud_runbook.md](docs/cloud_runbook.md);
