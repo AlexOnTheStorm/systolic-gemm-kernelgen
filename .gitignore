@@ -1,0 +1,26 @@
+# --- симуляция (cocotb/Verilator) ---
+sim_build/
+__pycache__/
+*.vcd
+*.fst
+results.xml
+dump.vcd
+
+# --- генерённые артефакты DSE/синтеза/железа ---
+results/
+gen/results/
+
+# --- Vivado/Vitis мусор ---
+*.jou
+*.log
+*.str
+*.dcp
+*.xo
+*.xclbin
+.Xil/
+_x/
+vivado*.backup.*
+pack_*/
+
+# --- прочее ---
+.DS_Store
