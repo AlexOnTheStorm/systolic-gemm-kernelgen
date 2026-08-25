@@ -73,8 +73,10 @@ async def run_matmul(dut, A: list[list[int]], B: list[list[int]]) -> list[list[i
     dut.clear.value = 0
     dut.en.value = 1
 
-    # подача со skew + дренаж нулями (en держим 1; нулевые произведения безвредны)
-    total = K + M + N + 4
+    # подача со skew + дренаж нулями (en держим 1; нулевые произведения безвредны).
+    # запас +6 покрывает волновой фронт И латентность конвейера MAC в PE (+2 такта,
+    # см. pe.sv): последнее произведение должно дойти до acc, пока en=1.
+    total = K + M + N + 6
     for t in range(total):
         a_edge = [A[i][t - i] if 0 <= (t - i) < K else 0 for i in range(M)]
         b_edge = [B[t - j][j] if 0 <= (t - j) < K else 0 for j in range(N)]
@@ -82,11 +84,11 @@ async def run_matmul(dut, A: list[list[int]], B: list[list[int]]) -> list[list[i
         dut.b_in_flat.value = pack_edge(b_edge)
         await RisingEdge(dut.clk)
 
-    # ещё пара тактов на устаканивание последнего MAC, входы 0
+    # ещё несколько тактов на прокачку конвейера последнего MAC, входы 0
     dut.a_in_flat.value = 0
     dut.b_in_flat.value = 0
-    await RisingEdge(dut.clk)
-    await RisingEdge(dut.clk)
+    for _ in range(4):
+        await RisingEdge(dut.clk)
     await ReadOnly()
 
     raw = int(dut.c_out_flat.value)
