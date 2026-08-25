@@ -5,11 +5,19 @@
 меняются — сверяй с `platforminfo -l`, awsdocs-fpga-f2 и aws-fpga (branch f2).
 
 ## 0. Инстанс + окружение (build-инстанс из FPGA Developer AMI, Vitis 2025.2)
+На этом AMI Vivado/Vitis/v++ **уже в PATH** (`/opt/Xilinx/2025.2/…`, settings64.sh
+подхватывается профилем) — для СИНТЕЗА (P3) source'ить ничего не надо.
+XRT и aws-fpga из коробки **отсутствуют** — нужны только на P4 (упаковка/хост/железо):
 ```bash
-source /home/ubuntu/src/aws-fpga/vitis_setup.sh   # XRT + F2-платформы + env
-source /opt/xilinx/xrt/setup.sh                   # (если не подтянулось)
+# --- для P3 (synth) достаточно этого: ---
 git clone https://github.com/AlexOnTheStorm/systolic-gemm-kernelgen.git
-cd systolic-gemm-kernelgen
+cd systolic-gemm-kernelgen/practice/gemm_kernelgen
+which vivado    # sanity: /opt/Xilinx/2025.2/Vivado/bin/vivado
+
+# --- ДОП. только когда дойдёшь до P4 (xo/v++/хост): ---
+git clone https://github.com/aws/aws-fpga.git ~/aws-fpga
+source ~/aws-fpga/vitis_setup.sh    # ставит/подхватывает XRT + F2-платформы + env
+# (если settings64 не в профиле: source /opt/Xilinx/2025.2/Vitis/settings64.sh)
 ```
 
 ## 1. P3 — синтез-оценка (f_max, ресурсы) — регион не важен

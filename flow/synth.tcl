@@ -29,8 +29,13 @@ puts "=== synth: part=$part  clk=${clk_ns}ns  array=${arr_m}x${arr_n} ==="
 # --- чтение RTL (SVA не синтезируем — только pe.sv + systolic_array.sv) ---
 read_verilog -sv [list $rtl_dir/pe.sv $rtl_dir/systolic_array.sv]
 
-# --- синтез с прокидыванием параметров массива ---
-synth_design -top systolic_array -part $part \
+# --- синтез OUT-OF-CONTEXT (-mode out_of_context) ---
+# systolic_array — НЕ самостоятельный чип, а ядро: данные придут по AXI из HBM,
+# а не с физических пинов. Плоские шины a/b/c_flat = 2180 портов, у VU47P только
+# 1106 I/O → без OOC place_design падает 'IO overutilization'. OOC отключает
+# вставку I/O-буферов и посадку портов на пины → получаем чистые f_max/ресурсы
+# ЛОГИКИ модуля (именно это и нужно на P3; обёртку синтезирует уже Vitis).
+synth_design -top systolic_array -part $part -mode out_of_context \
              -generic ARRAY_M=$arr_m -generic ARRAY_N=$arr_n
 
 # тактовая: создаём здесь (XDC read_xdc тоже можно, но период параметризуем)
