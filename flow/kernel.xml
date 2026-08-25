@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  kernel.xml — Vitis-контракт ядра gemm_kernel (P4).
+  Описывает XRT-хосту: как называется ядро, какой control-протокол, какие
+  аргументы, их РАЗМЕР и СМЕЩЕНИЕ в AXI-Lite регистровом файле, и через какой
+  порт памяти идёт каждый указатель. Смещения ДОЛЖНЫ совпадать с regmap в
+  rtl/gemm_kernel.sv:
+     0x00 ap_ctrl (ap_start/ap_done/ap_idle)   ← ap_ctrl_hs, не аргумент
+     0x10 a_addr[31:0] / 0x14 a_addr[63:32]     ← arg a  (64-бит указатель)
+     0x1C b_addr[31:0] / 0x20 b_addr[63:32]     ← arg b
+     0x28 c_addr[31:0] / 0x2C c_addr[63:32]     ← arg c
+     0x34 k_dim                                 ← arg k_dim (скаляр 32-бит)
+
+  addressQualifier: 1 = указатель в global memory (идёт через m_axi_gmem),
+                    0 = скаляр (лежит только в регистре s_axi_control).
+  hwControlProtocol=ap_ctrl_hs → XRT дёргает ap_start и поллит ap_done (0x00).
+  ⚠️ Формат/версия kernel.xml зависят от версии Vitis — сверяй с UG1393.
+-->
+<root versionMajor="1" versionMinor="6">
+  <kernel name="gemm_kernel" language="ip_c"
+          vlnv="user.org:user:gemm_kernel:1.0"
+          attributes="" preferredWorkGroupSizeMultiple="0" workGroupSize="1"
+          interrupt="false" hwControlProtocol="ap_ctrl_hs">
+    <ports>
+      <!-- AXI4-Lite control: регистры аргументов + ap_ctrl. range = размер regmap. -->
+      <port name="s_axi_control" mode="slave"  range="0x1000"
+            dataWidth="32" portType="addressable" base="0x0"/>
+      <!-- AXI4 master в global memory (HBM/DDR). dataWidth=32 = наш AXI_DW. -->
+      <port name="m_axi_gmem"    mode="master" range="0xFFFFFFFFFFFFFFFF"
+            dataWidth="32" portType="addressable" base="0x0"/>
+    </ports>
+    <args>
+      <arg name="a"     addressQualifier="1" id="0" port="m_axi_gmem"
+           size="0x8" offset="0x10" hostOffset="0x0" hostSize="0x8" type="char*"/>
+      <arg name="b"     addressQualifier="1" id="1" port="m_axi_gmem"
+           size="0x8" offset="0x1C" hostOffset="0x0" hostSize="0x8" type="char*"/>
+      <arg name="c"     addressQualifier="1" id="2" port="m_axi_gmem"
+           size="0x8" offset="0x28" hostOffset="0x0" hostSize="0x8" type="int*"/>
+      <arg name="k_dim" addressQualifier="0" id="3" port="s_axi_control"
+           size="0x4" offset="0x34" hostOffset="0x0" hostSize="0x4" type="uint"/>
+    </args>
+  </kernel>
+</root>
