@@ -1,6 +1,6 @@
 # Сквозной флоу: sim → synth → xo → xclbin → железо → ILA
 
-Полный путь одного ядра. Локальное (мак) отмечено 💻, облачное (Vivado/F1) — ☁️.
+Полный путь одного ядра. Локальное (мак) отмечено 💻, облачное (Vivado/F2) — ☁️.
 Это и есть «образец проектирования на будущее»: каждый шаг воспроизводим.
 
 ```
@@ -22,7 +22,7 @@ cd ../gen && python3 search.py --M 64 --N 64 --K 64 --budget 64
 
 ### 2. ☁️ Синтез-оценка (P3)
 ```bash
-vivado -mode batch -source flow/synth.tcl -tclargs xcvu9p-flgb2104-2-i 3.0 8 8
+vivado -mode batch -source flow/synth.tcl -tclargs xcvu47p-fsvh2892-3-e 3.0 8 8
 ```
 Смотри `results/synth/timing_summary.rpt` (WNS≥0?) и `utilization.rpt`
 (DSP ≈ 64 = число PE?). Разбор — `docs/report_analysis.md`. Здесь смыкаются
@@ -42,7 +42,7 @@ PLATFORM=<platform> ./flow/build_hw.sh hw        # потом битстрим (
 ```
 `--debug.chipscope gemm_kernel_1` вешает **System ILA** на AXI-интерфейсы ядра.
 
-### 5. ☁️ Запуск на F1 + сверка
+### 5. ☁️ Запуск на F2 + сверка
 ```bash
 python3 host/run_hw.py results/hw/gemm_kernel.hw.xclbin --M 8 --N 8 --K 8
 # PASS — hardware GEMM совпал с golden
@@ -53,12 +53,12 @@ GUI Vivado НЕ нужен. ILA гоняется headless через batch-Tcl, 
 
 ```bash
 # терминал 1: поднять коннект к железу
-#   Alveo — hw_server видит карту сам; F1 — виртуальный JTAG (XVC):
-sudo fpga-load-local-image  -S 0 -I <agfi-с-ILA>        # только F1
-sudo fpga-start-virtual-jtag -P 10201 -S 0              # только F1 → XVC на :10201
+#   Alveo — hw_server видит карту сам; F2 — виртуальный JTAG (XVC):
+sudo fpga-load-local-image  -S 0 -I <agfi-с-ILA>        # только F2
+sudo fpga-start-virtual-jtag -P 10201 -S 0              # только F2 → XVC на :10201
 
 # терминал 2: вооружить ILA (ждёт триггер ap_start), захватить в файл
-XVC_URL=localhost:10201 vivado -mode batch -source flow/ila_debug.tcl   # F1
+XVC_URL=localhost:10201 vivado -mode batch -source flow/ila_debug.tcl   # F2
 #   (Alveo: без XVC_URL — open_hw_target подключится напрямую)
 
 # терминал 3: запустить хост → сработает триггер

@@ -3,14 +3,14 @@
 #  Никакого GUI: коннект к железу, взвод триггера, захват, выгрузка волны
 #  в CSV+VCD. Ровно под облачную машину без десктопа.
 #
-#  Запуск (на build/F1-инстансе):
+#  Запуск (на build/F2-инстансе):
 #    vivado -mode batch -source flow/ila_debug.tcl
 #  Волна → results/ila/capture.vcd  (смотри локально в surfer/gtkwave после scp,
 #  или headless: `surfer results/ila/capture.vcd`). CSV — для grep/pandas.
 #
 #  ⚠️ Подключение к FPGA:
 #   - Alveo (локально в облаке): hw_server видит карту напрямую (localhost:3121).
-#   - AWS F1: нет физического JTAG → Virtual JTAG (XVC) поверх PCIe. Сначала:
+#   - AWS F2: нет физического JTAG → Virtual JTAG (XVC) поверх PCIe. Сначала:
 #       sudo fpga-load-local-image -S 0 -I <agfi>          # залить AFI с ILA
 #       sudo fpga-start-virtual-jtag -P 10201 -S 0         # поднять XVC-сервер
 #     затем open_hw_target с -xvc_url (см. ниже). Точные шаги — aws-fpga/Vitis debug.
@@ -21,9 +21,9 @@ file mkdir $out_dir
 open_hw_manager
 connect_hw_server -url localhost:3121
 
-# --- выбрать target: Alveo напрямую ИЛИ F1 через XVC ---
+# --- выбрать target: Alveo напрямую ИЛИ F2 через XVC ---
 if {[info exists ::env(XVC_URL)]} {
-    open_hw_target -xvc_url $::env(XVC_URL)      ;# F1: напр. localhost:10201
+    open_hw_target -xvc_url $::env(XVC_URL)      ;# F2: напр. localhost:10201
 } else {
     open_hw_target                               ;# Alveo/локальный JTAG
 }

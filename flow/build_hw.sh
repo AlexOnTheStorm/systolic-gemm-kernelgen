@@ -2,27 +2,28 @@
 # =====================================================================
 #  build_hw.sh — линковка .xo в .xclbin через v++ (P4, в облаке).
 #  Вставляет System ILA на интерфейсы kernel'а (--debug.chipscope) для
-#  отладки на железе через ChipScope/debug-bridge (виртуальный JTAG на F1).
+#  отладки на железе через ChipScope/debug-bridge (виртуальный JTAG на F2).
 #
 #  Три цели (TARGET):
 #    sw_emu — быстрая проверка host+kernel логики (секунды), без RTL-точности
 #    hw_emu — RTL-точная эмуляция в QEMU+Verilog-sim (минуты), волны/ILA-препрув
-#    hw     — реальный битстрим для F1/Alveo (ЧАСЫ синтеза+P&R)
+#    hw     — реальный битстрим для F2/Alveo (ЧАСЫ синтеза+P&R)
 #
 #  Использование:
 #    ./build_hw.sh sw_emu        # локальная проверка на build-инстансе
 #    ./build_hw.sh hw_emu        # RTL-эмуляция
-#    ./build_hw.sh hw            # железный битстрим (долго, для F1)
+#    ./build_hw.sh hw            # железный битстрим (долго, для F2)
 #
-#  Платформа: Alveo U200 = xilinx_u200_gen3x16_xdma_2_202110_1
-#             AWS F1     = xilinx_aws-vu9p-f1_shell-v04261818_201920_3
-#  (⚠️ точные имена платформ зависят от версии — см. `platforminfo -l`.)
+#  Платформа: AWS F2 = xilinx_aws-vu47p-f2_202420_2  (VU47P, 9024 DSP)
+#             (старый AWS F1 = xilinx_aws-vu9p-f1_shell-v04261818_201920_3;
+#              Alveo U200 = xilinx_u200_gen3x16_xdma_2_202110_1)
+#  (⚠️ точное имя платформы зависит от версии — см. `platforminfo -l`.)
 # =====================================================================
 set -euo pipefail
 
 TARGET="${1:-hw_emu}"
 KRNL=gemm_kernel
-PLATFORM="${PLATFORM:-xilinx_u200_gen3x16_xdma_2_202110_1}"
+PLATFORM="${PLATFORM:-xilinx_aws-vu47p-f2_202420_2}"
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 XO="$HERE/../results/xo/${KRNL}.xo"

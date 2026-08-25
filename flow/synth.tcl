@@ -8,14 +8,14 @@
 #    vivado -mode batch -source flow/synth.tcl -tclargs \
 #           <part> <clk_period_ns> <ARRAY_M> <ARRAY_N>
 #  Пример:
-#    vivado -mode batch -source flow/synth.tcl -tclargs xcvu9p-flgb2104-2-i 3.0 8 8
+#    vivado -mode batch -source flow/synth.tcl -tclargs xcvu47p-fsvh2892-3-e 3.0 8 8
 #
-#  Дефолты (если без -tclargs): AWS F1 VU9P, 3 нс, массив 8x8.
-#  Alveo U200 = xcu200-fsgd2104-2-e.
+#  Дефолты (если без -tclargs): AWS F2 VU47P, 3 нс, массив 8x8.
+#  (Старый AWS F1 VU9P = xcvu9p-flgb2104-2-i; Alveo U200 = xcu200-fsgd2104-2-e.)
 # =====================================================================
 
 # --- аргументы / дефолты ---
-set part      [expr {$argc > 0 ? [lindex $argv 0] : "xcvu9p-flgb2104-2-i"}]
+set part      [expr {$argc > 0 ? [lindex $argv 0] : "xcvu47p-fsvh2892-3-e"}]
 set clk_ns    [expr {$argc > 1 ? [lindex $argv 1] : 3.0}]
 set arr_m     [expr {$argc > 2 ? [lindex $argv 2] : 8}]
 set arr_n     [expr {$argc > 3 ? [lindex $argv 3] : 8}]

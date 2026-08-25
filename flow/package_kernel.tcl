@@ -19,7 +19,7 @@ set out_dir [file normalize [file dirname [info script]]/../results/xo]
 file mkdir $out_dir
 
 # 1) временный проект для упаковки IP
-create_project -force pack_$krnl $out_dir/pack -part xcvu9p-flgb2104-2-i
+create_project -force pack_$krnl $out_dir/pack -part xcvu47p-fsvh2892-3-e
 add_files -norecurse [list $rtl_dir/pe.sv $rtl_dir/systolic_array.sv $rtl_dir/$krnl.sv]
 set_property top $krnl [current_fileset]
 update_compile_order -fileset sources_1

@@ -1,12 +1,12 @@
 """
-run_hw.py — XRT-хост: запустить gemm_kernel на F1/Alveo и сверить с golden (P4).
+run_hw.py — XRT-хост: запустить gemm_kernel на F2/Alveo и сверить с golden (P4).
 
 Поток (pyxrt):
   device → load_xclbin → kernel → выделить BO (A,B,C в global memory) →
   записать A,B → sync TO_DEVICE → run(a,b,c,K).wait() → sync FROM_DEVICE →
   прочитать C → сверить с ref/golden.matmul_ref.
 
-⚠️ Запускается в облаке на F1-инстансе (нужны pyxrt + XRT + xclbin из build_hw.sh).
+⚠️ Запускается в облаке на F2-инстансе (нужны pyxrt + XRT + xclbin из build_hw.sh).
 На маке не идёт (нет XRT) — это финальный «замер на кремнии».
 
 Использование:

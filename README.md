@@ -3,11 +3,11 @@
 Параметризованный **INT8 систолический MAC-массив** на SystemVerilog +
 **Python-генератор/autotuner**, который порождает конфиги, проверяет корректность
 и меряет перф в реальной симуляции, и **сквозной FPGA-флоу** от RTL до отладки
-на кремнии через ILA (AWS F1 / Alveo). Personal reference-проект: аппаратное
+на кремнии через ILA (AWS F2 / Alveo). Personal reference-проект: аппаратное
 ускорение плотного matmul под конкретный workload, с co-design алгоритм↔железо.
 
 > Числа честно помечены по источнику: **латентность — измерена в симуляции**,
-> **f_max/DSP/LUT/power — из синтеза (Vivado)**, **замер на кремнии — на F1**.
+> **f_max/DSP/LUT/power — из синтеза (Vivado)**, **замер на кремнии — на F2**.
 > Никакие estimate не выдаются за measured.
 
 ## Что внутри
@@ -50,7 +50,7 @@ Output-stationary: активация `a` едет вправо, операнд 
 flowchart LR
   P1["P1 · RTL+cocotb+SVA<br/>correctness 💻"] --> P2["P2 · DSE в симуляции<br/>latency, выбор конфига 💻"]
   P2 --> P3["P3 · synth+репорты<br/>f_max, DSP, power ☁️"]
-  P3 --> P4["P4 · xo→xclbin→F1<br/>host + ILA ☁️"]
+  P3 --> P4["P4 · xo→xclbin→F2<br/>host + ILA ☁️"]
 ```
 
 ## Запуск
@@ -65,9 +65,9 @@ cd scripts && make kernel                   # AXI-kernel: полный DMA-да�
 ```
 `make kernel` verифицирует ПОЛНУЮ обёртку (AXI-Lite control + AXI-master DMA +
 систолика + сбор + запись) в симуляции против golden — ловит баги датапата ДО
-дорогого F1-bring-up. Проверено на 4×4, 2×6, 6×3, 8×8 и разных K.
+дорогого F2-bring-up. Проверено на 4×4, 2×6, 6×3, 8×8 и разных K.
 
-**В облаке (P3–P4, Vivado/Vitis + F1) — всё из терминала, без GUI:**
+**В облаке (P3–P4, Vivado/Vitis + F2) — всё из терминала, без GUI:**
 точная последовательность команд → [docs/cloud_runbook.md](docs/cloud_runbook.md);
 setup инстанса → [docs/cloud_setup.md](docs/cloud_setup.md);
 подробный флоу + headless ILA → [docs/flow_walkthrough.md](docs/flow_walkthrough.md).
@@ -90,8 +90,8 @@ setup инстанса → [docs/cloud_setup.md](docs/cloud_setup.md);
 | latency тайла | Verilator sim (P2) | измерено, детерминировано |
 | throughput MAC/такт | модель (tiles × latency) | расчёт из измеренного |
 | f_max, DSP/LUT, power | Vivado synth (P3) | синтез, не замер |
-| GEMM на кремнии | XRT на F1 (P4) | замер на железе |
+| GEMM на кремнии | XRT на F2 (P4) | замер на железе |
 
 ## Стек
-SystemVerilog · Verilator · cocotb · Python · Vivado/Vitis · XRT · AWS F1/Alveo.
+SystemVerilog · Verilator · cocotb · Python · Vivado/Vitis · XRT · AWS F2/Alveo.
 Стиль RTL — lowRISC ([docs/style_notes.md](docs/style_notes.md)).
