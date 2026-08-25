@@ -63,15 +63,16 @@ flowchart LR
 
 | метрика | значение | источник |
 |---|---|---|
-| **f_max** | **~795 МГц** (WNS +0.242 нс @ 1.5 нс) | Vivado synth |
+| **f_max** | **~795 МГц** (WNS +0.242 нс @ 1.5 нс, hold +0.052) | Vivado synth |
 | **DSP** | **64** (= число PE, 1 MAC = 1 DSP48) | Vivado synth |
-| LUT / FF | 3073 / 4096 | Vivado synth |
+| LUT / FF | **16 / 384** (почти весь MAC — внутри DSP) | Vivado synth |
 
 Тайминг разгонялся **397 → 795 МГц** через 4 итерации «читаю критический путь →
 чиню»: OOC-синтез, `use_dsp` (умножитель из LUT в DSP), конвейеризация MAC
-(latency↔f_max), и синхронный сброс (async reset мешал упаковке в DSP). Итог —
-route-bound на пределе DSP48E2. Полный разбор:
-[docs/report_analysis.md](docs/report_analysis.md) (worked example).
+(latency↔f_max), и синхронный сброс (async reset мешал упаковке в DSP). После
+упаковки в DSP fabric почти пуст (16 LUT / 384 FF), дизайн route-bound на пределе
+DSP48E2. Полные числа: [docs/synth_results_f2.md](docs/synth_results_f2.md);
+разбор итераций: [docs/report_analysis.md](docs/report_analysis.md) (worked example).
 ⚠️ Это OOC-потолок массива; в составе Vitis-kernel на F2 kernel-clock ниже (платформа).
 
 ## Запуск
