@@ -23,6 +23,12 @@ set out_dir  $here/../results/xo
 set ip_dir   $out_dir/ip
 file mkdir $out_dir
 
+# --- 0) чистим прошлые артефакты: package_xo НЕ перезаписывает существующий
+#        .xo («Kernel already exists inside XO container») → удаляем сами. ---
+file delete -force $out_dir/$krnl.xo
+file delete -force $ip_dir
+file delete -force $out_dir/pack
+
 # --- 1) временный проект для упаковки IP ---
 create_project -force pack_$krnl $out_dir/pack -part $part
 add_files -norecurse [list $rtl_dir/pe.sv $rtl_dir/systolic_array.sv $rtl_dir/$krnl.sv]
