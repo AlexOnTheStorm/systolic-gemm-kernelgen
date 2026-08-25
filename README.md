@@ -2,13 +2,19 @@
 
 Параметризованный **INT8 систолический MAC-массив** на SystemVerilog +
 **Python-генератор/autotuner**, который порождает конфиги, проверяет корректность
-и меряет перф в реальной симуляции, и **сквозной FPGA-флоу** от RTL до отладки
-на кремнии через ILA (AWS F2 / Alveo). Personal reference-проект: аппаратное
-ускорение плотного matmul под конкретный workload, с co-design алгоритм↔железо.
+и меряет перф в реальной симуляции, и **сквозной FPGA-флоу** от RTL через синтез,
+тайминг-клоужер и упаковку Vitis-kernel до битстрима под AWS F2 с System ILA.
+Personal reference-проект: аппаратное ускорение плотного matmul под конкретный
+workload, с co-design алгоритм↔железо.
 
 > Числа честно помечены по источнику: **латентность — измерена в симуляции**,
-> **f_max/DSP/LUT/power — из синтеза (Vivado)**, **замер на кремнии — на F2**.
-> Никакие estimate не выдаются за measured.
+> **f_max/DSP/LUT/power — из синтеза (Vivado)**. On-silicon прогон на живом F2 —
+> **отложен** (нужен полноценный AWS-аккаунт с FPGA-правами); битстрим под F2
+> собран и содержит ILA. Никакие estimate не выдаются за measured.
+
+**Статус:** P1–P3 пройдены и верифицированы; P4 — упаковка/линковка/битстрим под
+F2 (с ILA) собраны, логика датапата доказана в симуляции (cocotb AXI-модель);
+on-silicon `PASS` ждёт доступа к AWS FPGA.
 
 ## Что внутри
 
@@ -17,7 +23,7 @@ rtl/       pe.sv · systolic_array.sv · gemm_kernel.sv   (ядро + Vitis-об
 tb/        test_systolic.py · test_eval.py · systolic_sva.sv  (cocotb + SVA)
 ref/       golden.py                                    (эталон matmul)
 gen/       generator.py · evaluate.py · search.py · ai_propose.py  (DSE-петля)
-flow/      synth.tcl · package_kernel.tcl · build_hw.sh · constraints.xdc
+flow/      synth.tcl · package_kernel.tcl · kernel.xml · build_hw.sh · ila_debug.tcl
 host/      run_hw.py                                    (XRT-хост)
 scripts/   Makefile · run.sh                            (оркестрация)
 docs/      style_notes · report_analysis · flow_walkthrough · cloud_setup
@@ -48,10 +54,25 @@ Output-stationary: активация `a` едет вправо, операнд 
 
 ```mermaid
 flowchart LR
-  P1["P1 · RTL+cocotb+SVA<br/>correctness 💻"] --> P2["P2 · DSE в симуляции<br/>latency, выбор конфига 💻"]
-  P2 --> P3["P3 · synth+репорты<br/>f_max, DSP, power ☁️"]
-  P3 --> P4["P4 · xo→xclbin→F2<br/>host + ILA ☁️"]
+  P1["P1 · RTL+cocotb+SVA<br/>correctness ✅"] --> P2["P2 · DSE в симуляции<br/>latency, выбор конфига ✅"]
+  P2 --> P3["P3 · synth+репорты<br/>795 МГц, 64 DSP ✅"]
+  P3 --> P4["P4 · xo→xclbin→битстрим+ILA ✅<br/>on-silicon prog ⏸ (AWS)"]
 ```
+
+## Результат синтеза P3 (8×8, VU47P-3, out-of-context)
+
+| метрика | значение | источник |
+|---|---|---|
+| **f_max** | **~795 МГц** (WNS +0.242 нс @ 1.5 нс) | Vivado synth |
+| **DSP** | **64** (= число PE, 1 MAC = 1 DSP48) | Vivado synth |
+| LUT / FF | 3073 / 4096 | Vivado synth |
+
+Тайминг разгонялся **397 → 795 МГц** через 4 итерации «читаю критический путь →
+чиню»: OOC-синтез, `use_dsp` (умножитель из LUT в DSP), конвейеризация MAC
+(latency↔f_max), и синхронный сброс (async reset мешал упаковке в DSP). Итог —
+route-bound на пределе DSP48E2. Полный разбор:
+[docs/report_analysis.md](docs/report_analysis.md) (worked example).
+⚠️ Это OOC-потолок массива; в составе Vitis-kernel на F2 kernel-clock ниже (платформа).
 
 ## Запуск
 
@@ -87,10 +108,12 @@ setup инстанса → [docs/cloud_setup.md](docs/cloud_setup.md);
 ## Метрики по источникам (честность)
 | Метрика | Источник | Статус |
 |---|---|---|
-| latency тайла | Verilator sim (P2) | измерено, детерминировано |
-| throughput MAC/такт | модель (tiles × latency) | расчёт из измеренного |
-| f_max, DSP/LUT, power | Vivado synth (P3) | синтез, не замер |
-| GEMM на кремнии | XRT на F2 (P4) | замер на железе |
+| latency тайла | Verilator sim (P2) | ✅ измерено, детерминировано |
+| throughput MAC/такт | модель (tiles × latency) | ✅ расчёт из измеренного |
+| f_max, DSP/LUT | Vivado synth (P3) | ✅ синтез, не замер |
+| корректность датапата (AXI DMA) | cocotb AXI-модель (P4) | ✅ доказано в симуляции |
+| битстрим под F2 (+ILA) | v++ (P4) | ✅ собран |
+| GEMM на кремнии | XRT на F2 (P4) | ⏸ отложено (нужен AWS FPGA-доступ) |
 
 ## Стек
 SystemVerilog · Verilator · cocotb · Python · Vivado/Vitis · XRT · AWS F2/Alveo.
