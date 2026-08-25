@@ -17,6 +17,11 @@
 # =====================================================================
 set krnl     gemm_kernel
 set part     xcvu47p-fsvh2892-3-e
+# размер массива «запекается» в .xo на этапе упаковки (compile-time параметр, не
+# runtime). Переопределяется env: ARRAY_M/ARRAY_N. Дефолт 8×8 — под headline P3
+# (795 МГц, 64 DSP) и дефолт хоста (--M 8 --N 8). K остаётся runtime (k_dim≤K_MAX).
+set arr_m    [expr {[info exists ::env(ARRAY_M)] ? $::env(ARRAY_M) : 8}]
+set arr_n    [expr {[info exists ::env(ARRAY_N)] ? $::env(ARRAY_N) : 8}]
 set here     [file normalize [file dirname [info script]]]
 set rtl_dir  $here/../rtl
 set out_dir  $here/../results/xo
@@ -33,6 +38,9 @@ file delete -force $out_dir/pack
 create_project -force pack_$krnl $out_dir/pack -part $part
 add_files -norecurse [list $rtl_dir/pe.sv $rtl_dir/systolic_array.sv $rtl_dir/$krnl.sv]
 set_property top $krnl [current_fileset]
+# запечь размер массива в top через generic (compile-time)
+set_property generic "ARRAY_M=$arr_m ARRAY_N=$arr_n" [current_fileset]
+puts "=== packaging gemm_kernel  ARRAY_M=$arr_m  ARRAY_N=$arr_n ==="
 update_compile_order -fileset sources_1
 
 # --- 2) упаковать как IP (ipx авто-выводит bus-интерфейсы из имён портов) ---
