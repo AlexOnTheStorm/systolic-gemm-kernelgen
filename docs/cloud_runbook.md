@@ -42,30 +42,54 @@ export PLATFORM=xilinx_aws-vu47p-f2_202420_2                # F2-платфор�
 Эмуляции (`sw_emu`/`hw_emu`) НЕ требуют f2 — гоняй на дешёвом build-инстансе.
 `hw` — только когда эмуляция чистая (логика ядра уже sim-проверена `make kernel`).
 
-## 3. Залить на F2 (только для реального железа, в F2-регионе: Frankfurt/London)
+## 3. Из .xclbin → AWS-образ (.awsxclbin/AFI). Vitis/XRT-флоу, в F2-регионе!
+На F2 грузится НЕ сырой `.xclbin`, а `.awsxclbin` (AWS-обёртка с AFI). Создание
+AFI — асинхронное на стороне AWS (~30–60 мин). ⚠️ Bucket и `create-fpga-image`
+должны быть в **F2-регионе** (Frankfurt=eu-central-1 или London=eu-west-2), НЕ в
+eu-north-1. Билд-бокс может быть где угодно — он просто заливает в S3 и дёргает API.
+
+Нужно: AWS CLI с креденшелами (IAM-права `ec2:CreateFpgaImage`,
+`ec2:DescribeFpgaImages`, доступ к S3), и S3-bucket в F2-регионе.
 ```bash
-# из битстрима создать AFI (один раз), дождаться 'available':
-aws ec2 create-fpga-image --input-storage-location Bucket=<s3>,Key=<dcp> ...
-# на f2.6xlarge:
-sudo fpga-load-local-image -S 0 -I <agfi-id>
+source ~/aws-fpga/vitis_setup.sh              # даёт create_vitis_afi.sh
+aws configure set region eu-central-1         # Frankfurt (F2)
+aws s3 mb s3://<bucket-afi> --region eu-central-1   # один раз
+
+# найти скрипт (путь зависит от версии aws-fpga):
+AFISH=$(find ~/aws-fpga -name create_vitis_afi.sh | head -1); echo $AFISH
+
+# сгенерить AFI + .awsxclbin из hw.xclbin:
+$AFISH -xclbin=results/hw/gemm_kernel.hw.xclbin \
+       -o=results/hw/gemm_kernel \
+       -s3_bucket=<bucket-afi> -s3_dcp_key=dcp -s3_logs_key=logs
+# → results/hw/gemm_kernel.awsxclbin  +  *_afi_id.txt (afi-.../agfi-...)
+
+# дождаться, пока AFI перейдёт в 'available':
+afi=$(grep -o 'afi-[0-9a-f]*' *_afi_id.txt | head -1)
+aws ec2 describe-fpga-images --fpga-image-ids $afi \
+    --query 'FpgaImages[0].State.Code' --region eu-central-1   # ждём "available"
 ```
 
-## 4. Запуск + сверка с golden (на f2)
+## 4. Запуск + сверка с golden (на f2.6xlarge, Frankfurt)
+XRT сам программирует FPGA при `load_xclbin(.awsxclbin)` — отдельный
+`fpga-load-local-image` в Vitis-флоу НЕ нужен. На f2 XRT/pyxrt уже из коробки.
 ```bash
-python3 host/run_hw.py results/hw/gemm_kernel.hw.xclbin --M 8 --N 8 --K 8
-# PASS — hardware GEMM совпал с golden
+# скопировать на f2: .awsxclbin + host/ + ref/ (репо проще склонировать заново)
+python3 host/run_hw.py results/hw/gemm_kernel.awsxclbin --M 8 --N 8 --K 8
+# PASS — hardware GEMM 8x8x8 совпал с golden   ← ЗАМЕР НА КРЕМНИИ
 ```
 
-## 5. ILA-отладка — headless, 3 терминала (см. flow/ila_debug.tcl)
+## 5. ILA-отладка на F2 — headless (см. flow/ila_debug.tcl)
+Битстрим собран с System ILA (`--debug.chipscope`, только на `hw`). На F2 доступ к
+ILA идёт через отладочный мост XRT (XVC). ⚠️ точная механика XVC/порта на F2 зависит
+от версии XRT/awsdocs-fpga — сверь с текущей докой AWS перед прогоном.
 ```bash
-# т.1 (f2): поднять виртуальный JTAG
-sudo fpga-start-virtual-jtag -P 10201 -S 0
-
-# т.2: вооружить ILA (ждёт триггер ap_start), захват в файл
+# т.1 (f2): открыть XVC-мост к запрограммированному FPGA (XRT/AWS утилита)
+#   на F2 это делает XRT debug-bridge; порт/команда — см. awsdocs-fpga (F2 debug).
+# т.2: вооружить ILA и захватить волну в файл (headless batch-Tcl):
 XVC_URL=localhost:10201 vivado -mode batch -source flow/ila_debug.tcl
-
-# т.3: дёрнуть kernel → сработает триггер
-python3 host/run_hw.py results/hw/gemm_kernel.hw.xclbin --M 8 --N 8 --K 8
+# т.3: дёрнуть kernel → триггер на ap_start:
+python3 host/run_hw.py results/hw/gemm_kernel.awsxclbin --M 8 --N 8 --K 8
 ```
 Волна → `results/ila/capture.vcd`. Смотреть:
 ```bash
