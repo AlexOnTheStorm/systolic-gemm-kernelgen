@@ -65,8 +65,13 @@ module pe #(
   (* use_dsp = "yes" *)
   logic signed [2*DATA_WIDTH-1:0] prod_r;     // stage2: произведение (MREG)
 
-  always_ff @(posedge clk or negedge rst_n) begin
-    if (!rst_n) begin
+  // СИНХРОННЫЙ reset (нет `negedge rst_n` в списке чувствительности): внутренние
+  // регистры DSP48E2 поддерживают ТОЛЬКО синхронный сброс. С асинхронным Vivado
+  // не смог бы упаковать a_r/b_r/prod_r/acc в AREG/BREG/MREG/PREG и оставил бы их
+  // в fabric → DSP работал бы комбинаторно (~2 нс, ~500 МГц). Синхронный сброс →
+  // регистры уходят В DSP → «родная» частота. Корректность держит `clear`.
+  always_ff @(posedge clk) begin
+    if (!rst_n) begin                       // СИНХРОННЫЙ (внутри @(posedge clk))
       a_out <= '0; b_out <= '0;
       a_r   <= '0; b_r   <= '0; prod_r <= '0;
       acc   <= '0;
