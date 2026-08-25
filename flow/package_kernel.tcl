@@ -51,9 +51,14 @@ puts "rename s_axil->s_axi_control: ${e1}"
 puts "rename m_axi->m_axi_gmem:     ${e2}"
 
 # --- 3a) master gmem: адресное пространство 64-бит (нужно XRT для DMA) ---
+#   Синтаксис 2025.2: имя + компонент позиционно (без -index). range = полный
+#   64-бит; ссылка мастера на своё адресное пространство — master_address_space_ref.
 catch {
-  ipx::add_address_space -index 0 Data_m_axi_gmem $core
-  set_property width_value  64 [ipx::get_address_spaces Data_m_axi_gmem -of_objects $core]
+  ipx::add_address_space Data_m_axi_gmem $core
+  set_property range 0xFFFFFFFFFFFFFFFF \
+      [ipx::get_address_spaces Data_m_axi_gmem -of_objects $core]
+  set_property width 64 \
+      [ipx::get_address_spaces Data_m_axi_gmem -of_objects $core]
   set_property master_address_space_ref Data_m_axi_gmem \
       [ipx::get_bus_interfaces m_axi_gmem -of_objects $core]
 } e3

@@ -32,10 +32,18 @@ mkdir -p "$OUT"
 
 echo "=== v++ link: target=$TARGET platform=$PLATFORM ==="
 
-# --debug.chipscope <cu> вешает System ILA на интерфейсы вычислительного юнита;
-# -g включает отладочную сборку. На hw это добавляет ILA в битстрим.
+# --debug.chipscope <cu> вешает System ILA на интерфейсы вычислительного юнита.
+# ILA имеет смысл ТОЛЬКО для реального битстрима (hw) — для sw_emu/hw_emu отладка
+# идёт волнами симулятора, а chipscope там лишний (v++ ругается/игнорит). Поэтому
+# добавляем флаг ILA только на hw.
+ila_args=()
+if [[ "$TARGET" == "hw" ]]; then
+  ila_args=(--debug.chipscope "${KRNL}_1")
+fi
+
+# -g включает отладочную сборку (символы для эмуляции/ILA).
 v++ -l -t "$TARGET" --platform "$PLATFORM" \
-    -g --debug.chipscope "${KRNL}_1" \
+    -g "${ila_args[@]}" \
     --connectivity.nk "${KRNL}:1:${KRNL}_1" \
     -o "$OUT/${KRNL}.${TARGET}.xclbin" \
     "$XO"
