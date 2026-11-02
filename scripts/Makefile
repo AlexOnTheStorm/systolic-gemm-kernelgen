@@ -1,31 +1,31 @@
 # =====================================================================
-#  Симуляция systolic_array в cocotb + Verilator.
-#    make          — собрать и прогнать self-checking TB (дефолт)
-#    make waves    — то же + открыть VCD (нужен surfer/gtkwave)
-#    make clean    — убрать артефакты сборки
-#  Идиома — как в practice/ex7_fifo_cocotb/Makefile (плоский include).
-#  Запускать ИЗ этой папки (scripts/): пути к RTL относительны неё.
+#  Simulation of systolic_array in cocotb + Verilator.
+#    make          — build and run the self-checking TB (default)
+#    make waves    — same + open the VCD (needs surfer/gtkwave)
+#    make clean    — remove build artifacts
+#  Idiom: flat include of the cocotb Makefile.sim.
+#  Run FROM this directory (scripts/): RTL paths are relative to it.
 # =====================================================================
 SIM           ?= verilator
 TOPLEVEL_LANG ?= verilog
 
 VERILOG_SOURCES += $(CURDIR)/../rtl/pe.sv
 VERILOG_SOURCES += $(CURDIR)/../rtl/systolic_array.sv
-VERILOG_SOURCES += $(CURDIR)/../tb/systolic_sva.sv     # SVA-контракт (bind в pe)
+VERILOG_SOURCES += $(CURDIR)/../tb/systolic_sva.sv     # SVA contract (bound into pe)
 
-TOPLEVEL = systolic_array      # верхний модуль = DUT
-MODULE   = test_systolic       # имя .py без расширения
+TOPLEVEL = systolic_array      # top module = DUT
+MODULE   = test_systolic       # .py name without extension
 
-# где cocotb ищет test-модуль и golden-модель
+# where cocotb looks for the test module and the golden model
 export PYTHONPATH := $(CURDIR)/../tb:$(CURDIR)/../ref:$(PYTHONPATH)
 
-EXTRA_ARGS += --trace --trace-structs   # VCD для разбора волн
-EXTRA_ARGS += --assert                  # включить проверку SVA (systolic_sva.sv)
+EXTRA_ARGS += --trace --trace-structs   # VCD for waveform debugging
+EXTRA_ARGS += --assert                  # enable SVA checking (systolic_sva.sv)
 
 include $(shell cocotb-config --makefiles)/Makefile.sim
 
-# --- P4: сим ПОЛНОГО kernel (AXI-Lite + AXI-master DMA) — верификация
-#     датапата обёртки ДО железа. `make kernel [ARRAY_M=8 ARRAY_N=8 KERNEL_K=8]`
+# --- P4: simulation of the FULL kernel (AXI-Lite + AXI-master DMA) — verifies
+#     the wrapper datapath BEFORE hardware. `make kernel [ARRAY_M=8 ARRAY_N=8 KERNEL_K=8]`
 ARRAY_M  ?= 4
 ARRAY_N  ?= 4
 KERNEL_K ?= 4
@@ -43,4 +43,4 @@ waves:
 	@f=$$(find . -name '*.vcd' | head -1); echo "wave: $$f"; \
 	 (command -v surfer >/dev/null && surfer $$f) || \
 	 (command -v gtkwave >/dev/null && gtkwave $$f) || \
-	 echo "нет surfer/gtkwave — открой $$f вручную"
+	 echo "no surfer/gtkwave — open $$f manually"

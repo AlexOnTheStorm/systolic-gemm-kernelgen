@@ -1,12 +1,12 @@
 """
-evaluate.py — прогнать ОДИН конфиг массива через реальную симуляцию и снять метрики.
+evaluate.py — run ONE array config through a real simulation and collect metrics.
 
-Это «evaluate performance in simulation» из петли: для конфига (ARRAY_M×ARRAY_N)
-пересобираем Verilator с -GARRAY_M/-GARRAY_N и гоняем tb/test_eval.py, который
-меряет латентность устаканивания и проверяет корректность против golden.
+This is the "evaluate performance in simulation" step of the loop: for a config
+(ARRAY_M×ARRAY_N) we rebuild Verilator with -GARRAY_M/-GARRAY_N and run
+tb/test_eval.py, which measures the settle latency and checks correctness against golden.
 
-Требует активного fpga-venv (cocotb-config/verilator на PATH). search.py вызывает
-это в цикле. Пересборка на конфиг — секунды; для DSE в десятки точек приемлемо.
+Needs an active venv (cocotb-config/verilator on PATH). search.py calls this in a loop.
+A rebuild per config takes seconds, which is fine for a DSE of tens of points.
 """
 from __future__ import annotations
 import os
@@ -27,12 +27,12 @@ class EvalResult:
     cfg: Config
     k: int
     ok: bool
-    latency: int          # такты устаканивания ОДНОГО тайла (детерминированы)
-    raw: str = ""         # хвост лога при ошибке
+    latency: int          # settle cycles of ONE tile (deterministic)
+    raw: str = ""         # log tail on error
 
 
 def run_sim(cfg: Config, k: int, timeout: int = 240) -> EvalResult:
-    """Собрать конфиг в Verilator и измерить латентность/корректность тайла."""
+    """Build a config in Verilator and measure the tile latency/correctness."""
     env = os.environ.copy()
     env.update({
         "ARRAY_M": str(cfg.array_m),
@@ -41,13 +41,13 @@ def run_sim(cfg: Config, k: int, timeout: int = 240) -> EvalResult:
         "ACC_WIDTH": str(cfg.acc_width),
         "EVAL_K": str(k),
     })
-    # -G параметры идут в EXTRA_ARGS (ДОБАВляются к verilator), а не в
-    # COMPILE_ARGS — иначе затрём обязательные флаги cocotb (--prefix/-o/--vpi).
-    # --assert включаем; --trace НЕ включаем (быстрее пересборка в DSE).
+    # -G parameters go into EXTRA_ARGS (APPENDED to the verilator call), not into
+    # COMPILE_ARGS — otherwise we would clobber cocotb's mandatory flags (--prefix/-o/--vpi).
+    # --assert is on; --trace is NOT (faster rebuilds during DSE).
     gargs = (f"-GARRAY_M={cfg.array_m} -GARRAY_N={cfg.array_n} "
              f"-GDATA_WIDTH={cfg.data_width} -GACC_WIDTH={cfg.acc_width} --assert")
 
-    # чистая пересборка под новые параметры
+    # clean rebuild for the new parameters
     subprocess.run(["make", "clean"], cwd=SCRIPTS_DIR, env=env,
                    capture_output=True, text=True)
     try:
@@ -68,6 +68,6 @@ def run_sim(cfg: Config, k: int, timeout: int = 240) -> EvalResult:
 
 
 if __name__ == "__main__":
-    # быстрый ручной прогон одного конфига
+    # quick manual run of one config
     r = run_sim(Config(array_m=4, array_n=4), k=8)
-    print(f"cfg={r.cfg.key()} k={r.k} ok={r.ok} latency={r.latency} такт(ов)")
+    print(f"cfg={r.cfg.key()} k={r.k} ok={r.ok} latency={r.latency} cycle(s)")

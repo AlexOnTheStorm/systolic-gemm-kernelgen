@@ -1,22 +1,22 @@
 `timescale 1ns / 1ps
 // =====================================================================
-//  gemm_kernel — systolic_array как вызываемый Vitis RTL-kernel (P4).
-//  ПОЛНЫЙ датапат (не скелет): AXI4-Lite control + AXI4-master DMA +
-//  on-chip буферы + систолическая подача + сбор результата.
+//  gemm_kernel — systolic_array as a callable Vitis RTL kernel (P4).
+//  FULL datapath (not a skeleton): AXI4-Lite control + AXI4-master DMA +
+//  on-chip buffers + systolic feed + result collection.
 //
-//  Считает ОДИН тайл: C[M×N] = A[M×K] · B[K×N], где M=ARRAY_M, N=ARRAY_N,
-//  K = k_dim (runtime, ≤ K_MAX). Хост кладёт A,B,C в global memory.
+//  Computes ONE tile: C[M×N] = A[M×K] · B[K×N], where M=ARRAY_M, N=ARRAY_N,
+//  K = k_dim (runtime, ≤ K_MAX). The host places A, B, C in global memory.
 //
-//  РАСКЛАДКА ПАМЯТИ (референс — просто и верифицируемо):
-//    каждый элемент = 32-битное слово (INT8 A/B — в младшем байте со знаком,
-//    C — полный INT32). Плотная INT8-упаковка = оптимизация bandwidth (TODO).
-//    A: M*K слов row-major; B: K*N; C: M*N. AXI одиночными beat'ами.
+//  MEMORY LAYOUT (reference design — simple and verifiable):
+//    each element = one 32-bit word (INT8 A/B sign-extended in the low byte,
+//    C is a full INT32). Dense INT8 packing is a bandwidth optimization (TODO).
+//    A: M*K words row-major; B: K*N; C: M*N. AXI single-beat transfers.
 //
-//  Управляющий контракт ap_ctrl_hs (0x00): [0]=ap_start [1]=ap_done [2]=ap_idle.
-//  Аргументы: 0x10 a_addr, 0x1C b_addr, 0x28 c_addr, 0x34 k_dim.
+//  ap_ctrl_hs control contract (0x00): [0]=ap_start [1]=ap_done [2]=ap_idle.
+//  Arguments: 0x10 a_addr, 0x1C b_addr, 0x28 c_addr, 0x34 k_dim.
 //
-//  ✅ Верифицируется В СИМУЛЯЦИИ (tb/test_kernel.py, AXI-модель памяти) —
-//     bring-up на F2 остаётся интеграцией/таймингом, не отладкой логики.
+//  ✅ Verified IN SIMULATION (tb/test_kernel.py, AXI memory model) —
+//     bring-up on F2 is left with integration/timing, not logic debugging.
 // =====================================================================
 module gemm_kernel #(
     parameter int ARRAY_M    = 4,
@@ -30,7 +30,7 @@ module gemm_kernel #(
     input  logic                 ap_clk,
     input  logic                 ap_rst_n,
 
-    // --- AXI4-Lite control (упрощён: always-ready, одиночные транзакции) ---
+    // --- AXI4-Lite control (simplified: always-ready, single transactions) ---
     input  logic                 s_axil_awvalid,
     output logic                 s_axil_awready,
     input  logic [11:0]          s_axil_awaddr,
@@ -46,7 +46,7 @@ module gemm_kernel #(
     input  logic                 s_axil_rready,
     output logic [31:0]          s_axil_rdata,
 
-    // --- AXI4 master gmem (одиночный beat, len=0) ---
+    // --- AXI4 master gmem (single beat, len=0) ---
     output logic                 m_axi_arvalid,
     input  logic                 m_axi_arready,
     output logic [ADDR_W-1:0]    m_axi_araddr,
@@ -67,24 +67,24 @@ module gemm_kernel #(
     output logic                 m_axi_bready
 );
 
-  // счётчики позиций сравниваются/индексируются в разных разрядностях —
-  // функционально безопасно (значения в диапазоне), но Verilator строг к ширине.
-  // Гейт корректности — сверка с golden в tb/test_kernel.py, а не lint.
+  // position counters are compared/indexed at different widths —
+  // functionally safe (values stay in range), but Verilator is strict about width.
+  // The correctness gate is the golden comparison in tb/test_kernel.py, not lint.
   /* verilator lint_off WIDTHEXPAND */
   /* verilator lint_off WIDTHTRUNC */
 
   localparam int KW = $clog2(K_MAX);
 
-  // ---- регистры аргументов + управление ----
+  // ---- argument registers + control ----
   logic               ap_start, ap_done, ap_idle;
   logic [ADDR_W-1:0]  a_addr, b_addr, c_addr;
   logic [31:0]        k_dim;
 
-  // ---- on-chip буферы тайла ----
+  // ---- on-chip tile buffers ----
   logic signed [DATA_WIDTH-1:0] a_buf [ARRAY_M][K_MAX];
   logic signed [DATA_WIDTH-1:0] b_buf [K_MAX][ARRAY_N];
 
-  // ---- массив ----
+  // ---- array ----
   logic                                 arr_clear, arr_en;
   logic [ARRAY_M*DATA_WIDTH-1:0]        arr_a_in;
   logic [ARRAY_N*DATA_WIDTH-1:0]        arr_b_in;
@@ -99,7 +99,7 @@ module gemm_kernel #(
   );
 
   // ===================================================================
-  //  Главный FSM: IDLE → чтение A → чтение B → COMPUTE → запись C → DONE
+  //  Main FSM: IDLE → read A → read B → COMPUTE → write C → DONE
   // ===================================================================
   typedef enum logic [3:0] {
       S_IDLE, S_A_AR, S_A_R, S_B_AR, S_B_R,
@@ -107,20 +107,20 @@ module gemm_kernel #(
   } state_t;
   state_t state;
 
-  // счётчики позиций (без делителей — вложенные counters)
+  // position counters (no dividers — nested counters)
   logic [$clog2(ARRAY_M+1)-1:0] mm;
   logic [KW:0]                  kk;
   logic [$clog2(ARRAY_N+1)-1:0] nn;
   logic [ADDR_W-1:0]            rd_addr, wr_addr;
-  logic [15:0]                  cyc;              // счётчик тактов подачи
+  logic [15:0]                  cyc;              // feed cycle counter
 
-  // Длительность подачи/дренажа: (K+M+N-2) волновой фронт + запас. Запас 16'd8
-  // включает латентность конвейера MAC (pe.sv, +2 такта: операнды+MREG) — arr_en
-  // держим достаточно долго, чтобы последнее произведение успело дойти до acc до
-  // остановки массива (иначе in-flight результат «замёрзнет» в конвейере).
+  // Feed/drain duration: (K+M+N-2) wavefront + margin. The 16'd8 margin covers
+  // the MAC pipeline latency (pe.sv, +2 cycles: operands+MREG) — arr_en is held
+  // long enough for the last product to reach acc before the array stops
+  // (otherwise an in-flight result would "freeze" inside the pipeline).
   wire [15:0] feed_cycles = k_dim[15:0] + ARRAY_M[15:0] + ARRAY_N[15:0] + 16'd8;
 
-  // --- систолическая подача из буферов (комбинационно) ---
+  // --- systolic feed from the buffers (combinational) ---
   always_comb begin
     arr_a_in = '0;
     arr_b_in = '0;
@@ -155,14 +155,14 @@ module gemm_kernel #(
           ap_idle <= 1'b1; arr_en <= 1'b0;
           if (ap_start) begin
             ap_idle   <= 1'b0;
-            arr_clear <= 1'b1;                 // обнулить acc
+            arr_clear <= 1'b1;                 // zero acc
             mm <= '0; kk <= '0;
             rd_addr <= a_addr;
             m_axi_arvalid <= 1'b1; m_axi_araddr <= a_addr; m_axi_arlen <= '0;
             state <= S_A_AR;
           end
         end
-        // ---- чтение A: M*K слов (row-major A[mm][kk]) ----
+        // ---- read A: M*K words (row-major A[mm][kk]) ----
         S_A_AR: if (m_axi_arready) begin
                   m_axi_arvalid <= 1'b0; m_axi_rready <= 1'b1; state <= S_A_R;
                 end
@@ -170,10 +170,10 @@ module gemm_kernel #(
                   a_buf[mm][kk[KW-1:0]] <= m_axi_rdata[DATA_WIDTH-1:0];
                   m_axi_rready <= 1'b0;
                   rd_addr <= rd_addr + 4;
-                  // advance (mm,kk) в пределах K=k_dim
+                  // advance (mm,kk) within K=k_dim
                   if (kk + 1 == k_dim) begin
                     kk <= '0;
-                    if (mm + 1 == ARRAY_M) begin       // A прочитана → читаем B
+                    if (mm + 1 == ARRAY_M) begin       // A done → read B
                       mm <= '0; kk <= '0; rd_addr <= b_addr;
                       m_axi_arvalid <= 1'b1; m_axi_araddr <= b_addr;
                       state <= S_B_AR;
@@ -188,7 +188,7 @@ module gemm_kernel #(
                     state <= S_A_AR;
                   end
                 end
-        // ---- чтение B: K*N слов (row-major B[kk][nn]) ----
+        // ---- read B: K*N words (row-major B[kk][nn]) ----
         S_B_AR: if (m_axi_arready) begin
                   m_axi_arvalid <= 1'b0; m_axi_rready <= 1'b1; state <= S_B_R;
                 end
@@ -198,7 +198,7 @@ module gemm_kernel #(
                   rd_addr <= rd_addr + 4;
                   if (nn + 1 == ARRAY_N) begin
                     nn <= '0;
-                    if (kk + 1 == k_dim) begin          // B прочитана → COMPUTE
+                    if (kk + 1 == k_dim) begin          // B done → COMPUTE
                       kk <= '0; cyc <= '0; arr_en <= 1'b1; state <= S_COMPUTE;
                     end else begin
                       kk <= kk + 1;
@@ -211,7 +211,7 @@ module gemm_kernel #(
                     state <= S_B_AR;
                   end
                 end
-        // ---- COMPUTE: подать skew feed_cycles тактов ----
+        // ---- COMPUTE: drive the skewed feed for feed_cycles cycles ----
         S_COMPUTE: begin
           cyc <= cyc + 1;
           if (cyc + 1 >= feed_cycles) begin
@@ -221,7 +221,7 @@ module gemm_kernel #(
             state <= S_C_AW;
           end
         end
-        // ---- запись C: M*N слов INT32 (C[mm][nn]) ----
+        // ---- write C: M*N INT32 words (C[mm][nn]) ----
         S_C_AW: if (m_axi_awready) begin
                   m_axi_awvalid <= 1'b0;
                   m_axi_wvalid  <= 1'b1; m_axi_wlast <= 1'b1;
@@ -256,19 +256,19 @@ module gemm_kernel #(
     end
   end
 
-  // ap_done (ap_ctrl_hs): СТИКИ — ставится по завершению, снимается ЧТЕНИЕМ
-  // статуса хостом. Иначе 1-тактовый импульс проскакивает мимо polling'а.
+  // ap_done (ap_ctrl_hs): STICKY — set on completion, cleared when the host READS
+  // the status. Otherwise a 1-cycle pulse slips past the host's polling.
   always_ff @(posedge ap_clk or negedge ap_rst_n) begin
     if (!ap_rst_n)                                        ap_done <= 1'b0;
     else if (state == S_DONE)                             ap_done <= 1'b1;
     else if (s_axil_arvalid && s_axil_araddr == 12'h00)   ap_done <= 1'b0;
   end
 
-  // выход записи: слово C[mm][nn] из arr_c_out
+  // write data: word C[mm][nn] from arr_c_out
   assign m_axi_wdata = arr_c_out[(mm*ARRAY_N + nn)*ACC_WIDTH +: ACC_WIDTH];
 
   // ===================================================================
-  //  AXI4-Lite control: запись аргументов, чтение статуса
+  //  AXI4-Lite control: argument writes, status reads
   // ===================================================================
   assign s_axil_awready = 1'b1;
   assign s_axil_wready  = 1'b1;
@@ -295,7 +295,7 @@ module gemm_kernel #(
       end else if (s_axil_bready) begin
         s_axil_bvalid <= 1'b0;
       end
-      // ap_start самоочищается, когда FSM ушёл из IDLE
+      // ap_start self-clears once the FSM has left IDLE
       if (state != S_IDLE) ap_start <= 1'b0;
 
       if (s_axil_arvalid) begin

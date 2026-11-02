@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # =====================================================================
-#  run.sh — оркестратор ЛОКАЛЬНЫХ стадий (P1–P2, на маке в fpga-venv).
-#  Облачные P3–P4 (synth/ILA) — отдельно, см. docs/cloud_setup.md.
+#  run.sh — orchestrator for the LOCAL stages (P1–P2, on a laptop in a venv).
+#  Cloud stages P3–P4 (synth/ILA) are separate, see docs/cloud_setup.md.
 #
 #    ./run.sh sim     — P1: self-check + coverage + SVA
-#    ./run.sh dse     — P2: DSE-поиск конфига (grid+hillclimb)
-#    ./run.sh all     — sim, затем dse
-#  Требует активного fpga-venv (cocotb/verilator/python).
+#    ./run.sh dse     — P2: DSE config search (grid + hill-climb)
+#    ./run.sh all     — sim, then dse
+#  Needs an active venv with cocotb/verilator/python.
 # =====================================================================
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -14,7 +14,7 @@ CMD="${1:-all}"
 
 run_sim() {
   echo "== P1: sim =="
-  # clean обязателен: DSE (P2) оставляет сборку БЕЗ trace, а тут нужен --trace.
+  # clean is required: DSE (P2) leaves a build WITHOUT trace, and this stage needs --trace.
   ( cd "$HERE" && make clean >/dev/null 2>&1; make )
 }
 run_dse() {

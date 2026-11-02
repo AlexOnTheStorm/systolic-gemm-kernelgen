@@ -1,15 +1,15 @@
 """
-ai_propose.py — AI-assisted предложение следующих конфигов для DSE (P5).
+ai_propose.py — AI-assisted proposal of the next configs for the DSE (P5).
 
-Замыкает «AI-assisted generation loop» из JD: по УЖЕ измеренным результатам
-LLM предлагает, какие конфиги пробовать дальше (вместо перебора всей сетки).
+Closes an AI-assisted generation loop: from ALREADY measured results an LLM
+proposes which configs to try next (instead of sweeping the whole grid).
 
-⚠️ ЧЕСТНО: это НАДСТРОЙКА, не ядро. Поиск (gen/search.py) работает и без LLM.
-Здесь: если есть ANTHROPIC_API_KEY + пакет anthropic — спрашиваем модель;
-иначе — эвристический fallback (сосед лучшего непройденный конфиг). Так петля
-демонстрирует AI-in-the-loop, но не зависит от него.
+⚠️ To be clear: this is an ADD-ON, not the core. The search (gen/search.py) works
+without an LLM. Here: if ANTHROPIC_API_KEY and the anthropic package are present,
+we ask the model; otherwise a heuristic fallback (an untried neighbour of the best
+config). The loop demonstrates AI-in-the-loop without depending on it.
 
-Использование (в search.py или отдельно):
+Usage (from search.py or standalone):
     from ai_propose import propose_next
     next_cfgs = propose_next(results, budget=64, tried={"8x8_dw8", ...})
 """
@@ -21,7 +21,7 @@ from generator import Config, neighbours, enumerate_configs
 
 
 def _heuristic(results: list[dict], budget: int, tried: set[str]) -> list[Config]:
-    """Fallback без LLM: непройденные соседи текущего лучшего по throughput."""
+    """LLM-free fallback: untried neighbours of the current best by throughput."""
     if not results:
         return [Config(2, 2)]
     best = max(results, key=lambda r: r.get("throughput_mac_per_cyc", 0))
@@ -35,8 +35,8 @@ def _heuristic(results: list[dict], budget: int, tried: set[str]) -> list[Config
 def propose_next(results: list[dict], budget: int, tried: set[str],
                  k: int = 2) -> list[Config]:
     """
-    Вернуть до k конфигов-кандидатов на следующий замер.
-    Пытается LLM; при любой проблеме — эвристика (никогда не падает).
+    Return up to k candidate configs for the next measurement.
+    Tries the LLM; on any problem falls back to the heuristic (never raises).
     """
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
@@ -48,15 +48,15 @@ def propose_next(results: list[dict], budget: int, tried: set[str],
 
     valid = [c.key() for c in enumerate_configs(budget)]
     prompt = (
-        "Ты помогаешь искать оптимальный размер систолического INT8 GEMM-массива.\n"
-        f"Бюджет: {budget} PE (число PE = ARRAY_M*ARRAY_N).\n"
-        f"Допустимые конфиги: {valid}\n"
-        f"Уже измерено (throughput_mac_per_cyc — цель максимизировать):\n"
+        "You are helping to find the optimal size of a systolic INT8 GEMM array.\n"
+        f"Budget: {budget} PEs (number of PEs = ARRAY_M*ARRAY_N).\n"
+        f"Valid configs: {valid}\n"
+        f"Already measured (throughput_mac_per_cyc is the objective to maximize):\n"
         f"{json.dumps(results, ensure_ascii=False)}\n"
-        f"Уже пробовали: {sorted(tried)}\n"
-        f"Предложи до {k} НЕ пробованных конфигов, которые стоит измерить следующими, "
-        "чтобы быстрее найти максимум throughput. Ответь СТРОГО JSON-массивом строк "
-        'вида ["8x8_dw8", "4x8_dw8"], без пояснений.'
+        f"Already tried: {sorted(tried)}\n"
+        f"Propose up to {k} UNTRIED configs worth measuring next "
+        "to reach the throughput maximum faster. Reply STRICTLY with a JSON array of strings "
+        'like ["8x8_dw8", "4x8_dw8"], with no explanation.'
     )
     try:
         client = anthropic.Anthropic(api_key=api_key)
@@ -69,7 +69,7 @@ def propose_next(results: list[dict], budget: int, tried: set[str],
         keys = json.loads(text)
         out = []
         for key in keys:
-            # формат "MxN_dwD"
+            # format "MxN_dwD"
             dims, dw = key.split("_dw")
             m, n = dims.split("x")
             cfg = Config(int(m), int(n), int(dw))
@@ -86,4 +86,4 @@ if __name__ == "__main__":
         {"cfg": "4x4_dw8", "array_m": 4, "array_n": 4, "throughput_mac_per_cyc": 73.1},
     ]
     nxt = propose_next(demo, budget=64, tried={"2x2_dw8", "4x4_dw8"})
-    print("предложено:", [c.key() for c in nxt])
+    print("proposed:", [c.key() for c in nxt])

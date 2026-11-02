@@ -1,19 +1,20 @@
 # =====================================================================
-#  constraints.xdc — тайминговые ограничения для OOC-синтеза systolic_array.
+#  constraints.xdc — timing constraints for OOC synthesis of systolic_array.
 #
-#  Для STANDALONE-синтеза (P3, оценка f_max/ресурсов) задаём тактовую частоту
-#  сами. В Vitis-флоу (P4) тактовую даёт платформа — этот файл там НЕ нужен.
+#  For STANDALONE synthesis (P3, f_max/resource estimate) we set the clock
+#  ourselves. In the Vitis flow (P4) the platform provides the clock — this file
+#  is NOT needed there.
 #
-#  Период задаётся из synth.tcl через переменную; дефолт 3.0 нс (~333 МГц).
-#  Меняй CLK_PERIOD_NS в synth.tcl и пересматривай WNS (см. docs/report_analysis.md).
+#  The period is set from synth.tcl through a variable; default 3.0 ns (~333 MHz).
+#  Change CLK_PERIOD_NS in synth.tcl and re-check WNS (see docs/report_analysis.md).
 # =====================================================================
 
-# создаём виртуальную тактовую на входном порту clk
+# create a clock on the clk input port
 create_clock -name clk -period 3.000 [get_ports clk]
 
-# входы/выходы: условный I/O-бюджет (для OOC — грубая рамка, не критично)
+# inputs/outputs: nominal I/O budget (for OOC a rough frame, not critical)
 set_input_delay  -clock clk 0.500 [all_inputs]
 set_output_delay -clock clk 0.500 [all_outputs]
 
-# clk сам под set_input_delay не попадает
+# clk itself is not subject to set_input_delay
 set_false_path -from [get_ports clk]

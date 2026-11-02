@@ -1,33 +1,34 @@
-# Стиль RTL (lowRISC), применённый в проекте
+# RTL style (lowRISC) as applied in this project
 
-Проект следует lowRISC SystemVerilog Style Guide (IEEE 1800-2017). Ниже —
-конвенции и где они в коде. Это шпаргалка «как писать RTL, чтобы не стыдно».
+The project follows the lowRISC SystemVerilog Style Guide (IEEE 1800-2017). Below are the
+conventions and where they appear in the code.
 
-| Правило | Как | Где |
+| Rule | How | Where |
 |---|---|---|
-| Один модуль на файл, имя файла = модуль | `pe.sv`→`pe`, `systolic_array.sv`→`systolic_array` | rtl/ |
-| 4-state типы, `logic` везде | ни одного `reg`/`wire` в синтезируемом RTL | rtl/*.sv |
-| `lower_snake_case` для сигналов/модулей | `a_in`, `arr_c_out`, `n_tiles` | всюду |
-| `parameter int` + `#(...)`, без magic numbers | `ARRAY_M`, `DATA_WIDTH`, `ACC_WIDTH` | pe.sv, systolic_array.sv |
-| Именованные `generate`-блоки | `g_row`, `g_col`, `g_a_edge` | systolic_array.sv |
-| Контракт в шапке файла | dataflow/тайминг/точность до кода | все rtl/*.sv |
-| Синхронный сброс по имени `rst_n`, `always_ff` | `always_ff @(posedge clk or negedge rst_n)` | pe.sv |
-| Знаковая арифметика явно | `logic signed`, `signed'()`, ширина произведения `2*DATA_WIDTH` | pe.sv |
-| `unique case` + `default` в FSM | `unique case` регистров, `default:` в state-машине | gemm_kernel.sv |
-| SVA-контракт отдельно, `bind` в DUT | `pe_sva` + `bind pe pe_sva ... (.*)` | tb/systolic_sva.sv |
+| One module per file, file name = module name | `pe.sv`→`pe`, `systolic_array.sv`→`systolic_array` | rtl/ |
+| 4-state types, `logic` everywhere | no `reg`/`wire` in synthesizable RTL | rtl/*.sv |
+| `lower_snake_case` for signals/modules | `a_in`, `arr_c_out`, `n_tiles` | everywhere |
+| `parameter int` + `#(...)`, no magic numbers | `ARRAY_M`, `DATA_WIDTH`, `ACC_WIDTH` | pe.sv, systolic_array.sv |
+| Named `generate` blocks | `g_row`, `g_col`, `g_a_edge` | systolic_array.sv |
+| Contract in the file header | dataflow/timing/precision before the code | all rtl/*.sv |
+| Active-low reset named `rst_n`, `always_ff` | synchronous `always_ff @(posedge clk)` in the PE (lets Vivado pack registers into the DSP48E2); the kernel wrapper keeps an asynchronous `ap_rst_n` | pe.sv, gemm_kernel.sv |
+| Explicit signed arithmetic | `logic signed`, `signed'()`, product width `2*DATA_WIDTH` | pe.sv |
+| `unique case` + `default` in FSMs | `unique case` for registers, `default:` in the state machine | gemm_kernel.sv |
+| SVA contract kept separate, `bind` into the DUT | `pe_sva` + `bind pe pe_sva ... (.*)` | tb/systolic_sva.sv |
 
-## Почему это важно (для интервью)
-- **Читаемость/ревью:** единый стиль → быстрее код-ревью, меньше конфликтов.
-- **Синтезируемость:** `logic`+`always_ff`/`always_comb`, без латчей и hierarchical
-  refs в RTL — прямое следствие правил.
-- **Параметризация вместо копипасты:** один массив покрывает всё DSE-пространство
-  (P2), потому что размеры — параметры, а не хардкод.
+## Why it matters
+- **Readability/review:** one consistent style → faster code review, fewer conflicts.
+- **Synthesizability:** `logic` + `always_ff`/`always_comb`, no latches and no hierarchical
+  references in RTL follow directly from the rules.
+- **Parameterization instead of copy-paste:** one array covers the whole DSE space (P2),
+  because the sizes are parameters, not hard-coded values.
 
-## Сознательные отступления (честно)
-- `tb/systolic_sva.sv` содержит модуль `pe_sva` (имя ≠ файл): это tb/bind-файл,
-  правило «имя файла = модуль» для верификации ослаблено намеренно.
-- `rtl/gemm_kernel.sv` — reference-скелет Vitis-обёртки: AXI-boilerplate в
-  реальном потоке из Kernel Wizard (см. docs/flow_walkthrough.md).
+## Deliberate deviations
+- `tb/systolic_sva.sv` contains the module `pe_sva` (name ≠ file): it is a tb/bind file, and
+  the "file name = module" rule is intentionally relaxed for verification code.
+- `rtl/gemm_kernel.sv` uses a simplified AXI-Lite slave (always-ready, no WSTRB/BRESP/RRESP);
+  in a production flow this boilerplate would come from the Vitis Kernel Wizard
+  (see docs/flow_walkthrough.md).
 
-## Источник
+## Source
 lowRISC style guide: github.com/lowRISC/style-guides (VerilogCodingStyle.md).

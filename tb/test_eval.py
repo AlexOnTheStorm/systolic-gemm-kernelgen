@@ -1,17 +1,16 @@
 """
-test_eval — измерительный cocotb-тест для gen-петли (P2).
+test_eval — measurement cocotb test for the generator loop (P2).
 
-Отличие от test_systolic.py: один тайл заданного размера, где мы
-(1) проверяем корректность против golden и (2) ИЗМЕРЯЕМ в симуляции латентность
-устаканивания массива (такты от снятия clear до момента, когда все acc == C).
-Это подтверждает ДЕТЕРМИНИРОВАННУЮ латентность — метрику, которую использует
-gen/search.py.
+Unlike test_systolic.py, this runs one tile of a given size, where we
+(1) check correctness against the golden model and (2) MEASURE in simulation the
+array's settle latency (cycles from clear deassertion until every acc == C).
+This confirms the DETERMINISTIC latency, the metric used by gen/search.py.
 
-Идиома как в ex7: раздельные driver (пишет в ReadWrite-фазе) и monitor
-(сэмплирует в ReadOnly-фазе) — иначе cocotb ругается «write during ReadOnly».
+Separate driver (writes in the ReadWrite phase) and monitor (samples in the
+ReadOnly phase) — otherwise cocotb complains "write during ReadOnly".
 
-Геометрия и K берутся из окружения (evaluate.py их выставляет и одновременно
-даёт -GARRAY_M/-GARRAY_N в Verilator). Печатает строку:
+Geometry and K come from the environment (evaluate.py sets them and also passes
+-GARRAY_M/-GARRAY_N to Verilator). Prints the line:
     EVAL_JSON {"ok": true, "latency": N, ...}
 """
 import os
@@ -52,7 +51,7 @@ def read_acc(dut):
 
 
 async def driver(dut, A, B, total):
-    """Пишет систолический skew каждый такт (в ReadWrite-фазе после фронта)."""
+    """Drives the systolic skew every cycle (in the ReadWrite phase after the edge)."""
     for c in range(total):
         a_edge = [A[i][c - i] if 0 <= (c - i) < K else 0 for i in range(M)]
         b_edge = [B[c - j][j] if 0 <= (c - j) < K else 0 for j in range(N)]
@@ -64,7 +63,7 @@ async def driver(dut, A, B, total):
 
 
 async def monitor(dut, exp, state):
-    """Сэмплирует acc в ReadOnly-фазе; ловит латентность устаканивания."""
+    """Samples acc in the ReadOnly phase; captures the settle latency."""
     c = 0
     while True:
         await RisingEdge(dut.clk)
@@ -94,7 +93,7 @@ async def measure(dut):
     await RisingEdge(dut.clk)
     dut.rst_n.value = 1
 
-    # clear 1 такт → старт нового matmul
+    # 1 cycle of clear → start of a new matmul
     await RisingEdge(dut.clk)
     dut.clear.value = 1
     await RisingEdge(dut.clk)
@@ -104,7 +103,7 @@ async def measure(dut):
     state = {"latency": None, "last": None}
     cocotb.start_soon(monitor(dut, exp, state))
     await driver(dut, A, B, total=K + M + N + 6)
-    for _ in range(3):                      # дренаж
+    for _ in range(3):                      # drain
         await RisingEdge(dut.clk)
 
     ok = (state["last"] == exp) and (state["latency"] is not None)

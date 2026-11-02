@@ -1,20 +1,20 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  kernel.xml — Vitis-контракт ядра gemm_kernel (P4).
-  Описывает XRT-хосту: как называется ядро, какой control-протокол, какие
-  аргументы, их РАЗМЕР и СМЕЩЕНИЕ в AXI-Lite регистровом файле, и через какой
-  порт памяти идёт каждый указатель. Смещения ДОЛЖНЫ совпадать с regmap в
+  kernel.xml — Vitis contract of the gemm_kernel kernel (P4).
+  Tells the XRT host the kernel name, its control protocol, its arguments,
+  their SIZE and OFFSET in the AXI-Lite register file, and which memory port
+  each pointer uses. The offsets MUST match the register map in
   rtl/gemm_kernel.sv:
-     0x00 ap_ctrl (ap_start/ap_done/ap_idle)   ← ap_ctrl_hs, не аргумент
-     0x10 a_addr[31:0] / 0x14 a_addr[63:32]     ← arg a  (64-бит указатель)
+     0x00 ap_ctrl (ap_start/ap_done/ap_idle)   ← ap_ctrl_hs, not an argument
+     0x10 a_addr[31:0] / 0x14 a_addr[63:32]     ← arg a  (64-bit pointer)
      0x1C b_addr[31:0] / 0x20 b_addr[63:32]     ← arg b
      0x28 c_addr[31:0] / 0x2C c_addr[63:32]     ← arg c
-     0x34 k_dim                                 ← arg k_dim (скаляр 32-бит)
+     0x34 k_dim                                 ← arg k_dim (32-bit scalar)
 
-  addressQualifier: 1 = указатель в global memory (идёт через m_axi_gmem),
-                    0 = скаляр (лежит только в регистре s_axi_control).
-  hwControlProtocol=ap_ctrl_hs → XRT дёргает ap_start и поллит ap_done (0x00).
-  ⚠️ Формат/версия kernel.xml зависят от версии Vitis — сверяй с UG1393.
+  addressQualifier: 1 = pointer into global memory (goes through m_axi_gmem),
+                    0 = scalar (lives only in the s_axi_control register).
+  hwControlProtocol=ap_ctrl_hs → XRT pulses ap_start and polls ap_done (0x00).
+  ⚠️ The kernel.xml format/version depends on the Vitis version — check UG1393.
 -->
 <root versionMajor="1" versionMinor="6">
   <kernel name="gemm_kernel" language="ip_c"
@@ -22,10 +22,10 @@
           attributes="" preferredWorkGroupSizeMultiple="0" workGroupSize="1"
           interrupt="false" hwControlProtocol="ap_ctrl_hs">
     <ports>
-      <!-- AXI4-Lite control: регистры аргументов + ap_ctrl. range = размер regmap. -->
+      <!-- AXI4-Lite control: argument registers + ap_ctrl. range = register map size. -->
       <port name="s_axi_control" mode="slave"  range="0x1000"
             dataWidth="32" portType="addressable" base="0x0"/>
-      <!-- AXI4 master в global memory (HBM/DDR). dataWidth=32 = наш AXI_DW. -->
+      <!-- AXI4 master into global memory (HBM/DDR). dataWidth=32 = our AXI_DW. -->
       <port name="m_axi_gmem"    mode="master" range="0xFFFFFFFFFFFFFFFF"
             dataWidth="32" portType="addressable" base="0x0"/>
     </ports>

@@ -1,56 +1,56 @@
-# Облачная среда для Vivado/Vitis + F2 (P3–P4)
+# Cloud environment for Vivado/Vitis + F2 (P3–P4)
 
-macOS не запускает Vivado/Vitis. Всё «железное» (синтез, ILA, bitstream, запуск)
-делаем в облаке. Прямой путь — **AWS FPGA Developer AMI** (ветка F2): в ней уже
-стоят Vivado/Vitis + XRT с лицензией под F2-устройство. Текущая: Ubuntu, Xilinx
-**2025.2**, юзер `ubuntu`, репо/доки в `/home/ubuntu/src`.
+macOS cannot run Vivado/Vitis. Everything hardware-related (synthesis, ILA, bitstream, runs) happens
+in the cloud. The direct route is the **AWS FPGA Developer AMI** (F2 branch): it ships Vivado/Vitis +
+XRT with a license for the F2 device. Current version: Ubuntu, Xilinx **2025.2**, user `ubuntu`,
+repo/docs in `/home/ubuntu/src`.
 
-⚠️ AWS мигрировал с **F1 (VU9P)** на **F2 (VU47P)**. Имена AMI/платформ/версий
-быстро меняются — сверяйся с awsdocs-fpga-f2.readthedocs-hosted.com и
-`github.com/aws/aws-fpga` (branch f2) + `platforminfo -l` на инстансе.
+⚠️ AWS migrated from **F1 (VU9P)** to **F2 (VU47P)**. AMI/platform/version names change quickly —
+check awsdocs-fpga-f2.readthedocs-hosted.com and `github.com/aws/aws-fpga` (branch f2), plus
+`platforminfo -l` on the instance.
 
-## Регионы F2 (важно!)
+## F2 regions (important!)
 US East (N. Virginia), US West (Oregon), Canada Central, **eu-central-1 (Frankfurt)**,
-**eu-west-2 (London)**, AP Sydney/Tokyo/Seoul. **В eu-north-1 (Стокгольм) F2 НЕТ.**
-- Синтез/эмуляцию (P3, hw_emu) делай в любом регионе.
-- Реальный F2-прогон + AFI — в F2-регионе (ЕС: Frankfurt/London). AFI создаётся
-  в том же регионе, что и f2-инстанс.
+**eu-west-2 (London)**, AP Sydney/Tokyo/Seoul. **There is NO F2 in eu-north-1 (Stockholm).**
+- Synthesis/emulation (P3, hw_emu) can run in any region.
+- A real F2 run + AFI need an F2 region (EU: Frankfurt/London). The AFI is created in the same
+  region as the f2 instance.
 
-## Роли инстансов (синтез отдельно от железа)
-| Задача | Инстанс | Зачем |
+## Instance roles (synthesis separate from hardware)
+| Task | Instance | Why |
 |---|---|---|
-| Синтез P3, сборка `.xo`/`.xclbin`, эмуляции | **m7a.2xlarge** (без FPGA) | дёшево, быстрый Zen4 под P&R |
-| Запуск на кремнии + ILA | **f2.6xlarge** (1×VU47P) | собственно FPGA; F2-регион |
+| P3 synthesis, building `.xo`/`.xclbin`, emulation | **m7a.2xlarge** (no FPGA) | cheap, fast Zen4 for P&R |
+| On-silicon run + ILA | **f2.6xlarge** (1×VU47P) | the FPGA itself; F2 region |
 
-Сборка (часы) — на дешёвом build-инстансе; на f2 переходишь только ради прогона
-и ILA. Битстрим → **AFI** (`aws ec2 create-fpga-image`), затем грузишь на f2.
+The build (hours) runs on a cheap build instance; you switch to f2 only for the run and the ILA.
+Bitstream → **AFI** (`aws ec2 create-fpga-image`), then load it on the f2.
 
-## Быстрый старт
+## Quick start
 ```bash
-# 1) build-инстанс из FPGA Developer AMI (уже с Vitis 2025.2). Настройка env:
-source /home/ubuntu/src/aws-fpga/vitis_setup.sh     # XRT + платформы F2 + env
-#   (в свежей AMI aws-fpga уже склонирован в ~/src; иначе git clone -b f2 ...)
+# 1) build instance from the FPGA Developer AMI (Vitis 2025.2 preinstalled). Environment:
+source /home/ubuntu/src/aws-fpga/vitis_setup.sh     # XRT + F2 platforms + env
+#   (on a fresh AMI aws-fpga is already cloned into ~/src; otherwise git clone -b f2 ...)
 
-# 2) синтез-оценка (P3), из корня проекта gemm_kernelgen:
+# 2) synthesis estimate (P3), from the gemm_kernelgen project root:
 vivado -mode batch -source flow/synth.tcl -tclargs xcvu47p-fsvh2892-3-e 3.0 8 8
-#   → results/synth/*.rpt   (разбор: docs/report_analysis.md)
+#   → results/synth/*.rpt   (analysis: docs/report_analysis.md)
 
-# 3) собрать kernel (P4):
+# 3) build the kernel (P4):
 vivado -mode batch -source flow/package_kernel.tcl                    # → results/xo/*.xo
-PLATFORM=xilinx_aws-vu47p-f2_202420_2 ./flow/build_hw.sh hw_emu       # RTL-эмуляция
-PLATFORM=xilinx_aws-vu47p-f2_202420_2 ./flow/build_hw.sh hw           # битстрим → AFI
+PLATFORM=xilinx_aws-vu47p-f2_202420_2 ./flow/build_hw.sh hw_emu       # RTL emulation
+PLATFORM=xilinx_aws-vu47p-f2_202420_2 ./flow/build_hw.sh hw           # bitstream → AFI
 
-# 4) на f2-инстансе (F2-регион) — запуск + сверка:
+# 4) on the f2 instance (F2 region) — run + check:
 source /opt/xilinx/xrt/setup.sh
 python3 host/run_hw.py results/hw/gemm_kernel.hw.xclbin --M 8 --N 8 --K 8
 ```
 
-## Дешевле без f2
-- **hw_emu** (RTL-эмуляция) НЕ требует f2 — гоняй на build-инстансе, ловит 90%
-  интеграционных багов до дорогого битстрима. Начинай ВСЕГДА с hw_emu.
-- Логика ядра уже sim-проверена локально (`make kernel`) — эмуляция должна пройти чисто.
+## Cheaper without f2
+- **hw_emu** (RTL emulation) does NOT need an f2 — run it on the build instance; it catches most
+  integration bugs before an expensive bitstream. ALWAYS start with hw_emu.
+- The kernel logic is already simulation-checked locally (`make kernel`) — emulation should pass cleanly.
 
-## Гигиена расходов
-- f2 — по требованию: подними, прогони, **терминируй**. hw-синтез — на build-инстансе.
-- Держи `.xo`/`.dcp`/`.xclbin`/AFI-манифест в S3, чтобы не пересобирать.
-- VU47P огромен (9024 DSP) — наш массив помещается многократно; можно строить 64×64+.
+## Cost hygiene
+- f2 on demand: start it, run, **terminate**. hw synthesis runs on the build instance.
+- Keep the `.xo`/`.dcp`/`.xclbin`/AFI manifest in S3 to avoid rebuilding.
+- The VU47P is huge (9024 DSP) — our array fits many times over; 64×64+ is possible.

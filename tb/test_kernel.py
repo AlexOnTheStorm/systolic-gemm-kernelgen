@@ -1,12 +1,13 @@
 """
-test_kernel — сим-верификация ПОЛНОГО gemm_kernel (AXI-Lite + AXI-master DMA).
+test_kernel — simulation verification of the FULL gemm_kernel (AXI-Lite + AXI-master DMA).
 
-Модель памяти (AXI-slave) отвечает на master-запросы ядра: чтение A/B и запись C.
-AXI-Lite драйвер кладёт аргументы (адреса, K) и дёргает ap_start, ждёт ap_done,
-затем читает C из модели памяти и сверяет с golden. Это «hw_emu на маке» — ловит
-баги датапата ДО дорогого F2 (принцип «сдвигай баги влево», docs/flow_walkthrough).
+A memory model (AXI slave) answers the kernel's master requests: reads of A/B and writes of C.
+The AXI-Lite driver writes the arguments (addresses, K), pulses ap_start, waits for ap_done,
+then reads C from the memory model and compares it with the golden model. This is
+"hw_emu on a laptop": it catches datapath bugs BEFORE an expensive F2 run
+("shift bugs left", see docs/flow_walkthrough).
 
-Раскладка памяти = как в rtl/gemm_kernel.sv: 32-битное слово на элемент.
+Memory layout = as in rtl/gemm_kernel.sv: one 32-bit word per element.
 """
 import os
 import sys
@@ -33,7 +34,7 @@ def to_signed(v, bits):
 
 
 async def axi_mem_slave(dut, mem: dict):
-    """AXI-slave модель global memory: single-beat read/write."""
+    """AXI slave model of global memory: single-beat read/write."""
     dut.m_axi_arready.value = 1
     dut.m_axi_awready.value = 1
     dut.m_axi_wready.value = 1
@@ -45,34 +46,34 @@ async def axi_mem_slave(dut, mem: dict):
     aw_addr = 0
     while True:
         await RisingEdge(dut.ap_clk)
-        # --- read data handshake завершён? ---
+        # --- read data handshake done? ---
         if r_busy and int(dut.m_axi_rvalid.value) and int(dut.m_axi_rready.value):
             dut.m_axi_rvalid.value = 0
             dut.m_axi_rlast.value = 0
             r_busy = False
-        # --- принять AR, выдать R (arready=1 постоянно) ---
+        # --- accept AR, return R (arready is always 1) ---
         if not r_busy and int(dut.m_axi_arvalid.value):
             addr = int(dut.m_axi_araddr.value) & ~0x3
             dut.m_axi_rdata.value = mem.get(addr, 0) & MASK32
             dut.m_axi_rvalid.value = 1
             dut.m_axi_rlast.value = 1
             r_busy = True
-        # --- write: защёлкнуть AW-адрес ---
+        # --- write: latch the AW address ---
         if int(dut.m_axi_awvalid.value):
             aw_addr = int(dut.m_axi_awaddr.value) & ~0x3
-        # --- принять W, записать, поднять B ---
+        # --- accept W, store it, raise B ---
         if int(dut.m_axi_wvalid.value) and int(dut.m_axi_wready.value):
             mem[aw_addr] = int(dut.m_axi_wdata.value) & MASK32
             dut.m_axi_bvalid.value = 1
             b_busy = True
-        # --- B handshake завершён? ---
+        # --- B handshake done? ---
         if b_busy and int(dut.m_axi_bvalid.value) and int(dut.m_axi_bready.value):
             dut.m_axi_bvalid.value = 0
             b_busy = False
 
 
 async def axil_write(dut, addr, data):
-    """Один AXI-Lite write (awready/wready=1 постоянно)."""
+    """One AXI-Lite write (awready/wready are always 1)."""
     await RisingEdge(dut.ap_clk)
     dut.s_axil_awaddr.value = addr
     dut.s_axil_awvalid.value = 1
@@ -103,7 +104,7 @@ async def test_kernel_gemm(dut):
     B = rand_int8_matrix(K, N, rng)
     exp = matmul_ref(A, B)
 
-    # --- модель памяти: залить A, B (32-битное слово на элемент) ---
+    # --- memory model: load A, B (one 32-bit word per element) ---
     mem = {}
     for m in range(M):
         for k in range(K):
@@ -112,7 +113,7 @@ async def test_kernel_gemm(dut):
         for n in range(N):
             mem[B_ADDR + (k * N + n) * 4] = B[k][n] & MASK32
 
-    # --- сброс ---
+    # --- reset ---
     for sig in ["s_axil_awvalid", "s_axil_wvalid", "s_axil_arvalid",
                 "s_axil_bready", "s_axil_rready"]:
         getattr(dut, sig).value = 0
@@ -122,26 +123,26 @@ async def test_kernel_gemm(dut):
     await RisingEdge(dut.ap_clk)
     dut.ap_rst_n.value = 1
 
-    # --- запрограммировать аргументы ---
+    # --- program the arguments ---
     await axil_write(dut, 0x10, A_ADDR)
     await axil_write(dut, 0x1C, B_ADDR)
     await axil_write(dut, 0x28, C_ADDR)
     await axil_write(dut, 0x34, K)
-    # --- старт ---
+    # --- start ---
     await axil_write(dut, 0x00, 1)
 
-    # --- ждать ap_done (poll 0x00 bit1) ---
+    # --- wait for ap_done (poll 0x00 bit1) ---
     for _ in range(2000):
         status = await axil_read(dut, 0x00)
         if status & 0x2:
             break
     else:
-        assert False, "timeout: ap_done не поднялся (смотри FSM/AXI handshake)"
+        assert False, "timeout: ap_done never rose (check the FSM/AXI handshake)"
 
-    # --- прочитать C из памяти, сверить ---
+    # --- read C from memory and compare ---
     got = [[to_signed(mem.get(C_ADDR + (m * N + n) * 4, 0), 32) for n in range(N)]
            for m in range(M)]
     if got != exp:
         dut._log.error(f"MISMATCH\n got={got}\n exp={exp}")
-    assert got == exp, "hardware-путь ядра не совпал с golden"
-    dut._log.info(f"PASS — kernel GEMM {M}x{N}x{K} через AXI DMA == golden")
+    assert got == exp, "kernel hardware path does not match golden"
+    dut._log.info(f"PASS — kernel GEMM {M}x{N}x{K} via AXI DMA == golden")

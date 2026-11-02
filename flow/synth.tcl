@@ -1,20 +1,20 @@
 # =====================================================================
-#  synth.tcl — НЕПРОЕКТНЫЙ (non-project) синтез+имплементация systolic_array
-#  для оценки f_max и ресурсов (P3). Даёт РЕАЛЬНЫЕ synth-числа (в отличие от
-#  симуляционных тактов из P2). Best practice: non-project Tcl = воспроизводимо,
-#  версионируется, детерминированно (UG892/UG904).
+#  synth.tcl — NON-PROJECT synthesis + implementation of systolic_array
+#  to estimate f_max and resources (P3). Produces REAL synthesis numbers (unlike
+#  the simulated cycle counts of P2). Best practice: non-project Tcl is reproducible,
+#  version-controlled and deterministic (UG892/UG904).
 #
-#  Запуск в облаке (Vivado на Linux):
+#  Run in the cloud (Vivado on Linux):
 #    vivado -mode batch -source flow/synth.tcl -tclargs \
 #           <part> <clk_period_ns> <ARRAY_M> <ARRAY_N>
-#  Пример:
+#  Example:
 #    vivado -mode batch -source flow/synth.tcl -tclargs xcvu47p-fsvh2892-3-e 3.0 8 8
 #
-#  Дефолты (если без -tclargs): AWS F2 VU47P, 3 нс, массив 8x8.
-#  (Старый AWS F1 VU9P = xcvu9p-flgb2104-2-i; Alveo U200 = xcu200-fsgd2104-2-e.)
+#  Defaults (without -tclargs): AWS F2 VU47P, 3 ns, 8x8 array.
+#  (Old AWS F1 VU9P = xcvu9p-flgb2104-2-i; Alveo U200 = xcu200-fsgd2104-2-e.)
 # =====================================================================
 
-# --- аргументы / дефолты ---
+# --- arguments / defaults ---
 set part      [expr {$argc > 0 ? [lindex $argv 0] : "xcvu47p-fsvh2892-3-e"}]
 set clk_ns    [expr {$argc > 1 ? [lindex $argv 1] : 3.0}]
 set arr_m     [expr {$argc > 2 ? [lindex $argv 2] : 8}]
@@ -26,41 +26,41 @@ file mkdir $out_dir
 
 puts "=== synth: part=$part  clk=${clk_ns}ns  array=${arr_m}x${arr_n} ==="
 
-# --- чтение RTL (SVA не синтезируем — только pe.sv + systolic_array.sv) ---
+# --- read the RTL (SVA is not synthesized — only pe.sv + systolic_array.sv) ---
 read_verilog -sv [list $rtl_dir/pe.sv $rtl_dir/systolic_array.sv]
 
-# --- синтез OUT-OF-CONTEXT (-mode out_of_context) ---
-# systolic_array — НЕ самостоятельный чип, а ядро: данные придут по AXI из HBM,
-# а не с физических пинов. Плоские шины a/b/c_flat = 2180 портов, у VU47P только
-# 1106 I/O → без OOC place_design падает 'IO overutilization'. OOC отключает
-# вставку I/O-буферов и посадку портов на пины → получаем чистые f_max/ресурсы
-# ЛОГИКИ модуля (именно это и нужно на P3; обёртку синтезирует уже Vitis).
+# --- OUT-OF-CONTEXT synthesis (-mode out_of_context) ---
+# systolic_array is NOT a standalone chip but a core: data arrives over AXI from HBM,
+# not from physical pins. The flat a/b/c_flat buses are 2180 ports, the VU47P has only
+# 1106 I/Os → without OOC place_design fails with 'IO overutilization'. OOC disables
+# I/O buffer insertion and pin placement → we get clean f_max/resources of the module
+# LOGIC (exactly what P3 needs; the wrapper is synthesized later by Vitis).
 synth_design -top systolic_array -part $part -mode out_of_context \
              -generic ARRAY_M=$arr_m -generic ARRAY_N=$arr_n
 
-# тактовая: создаём здесь (XDC read_xdc тоже можно, но период параметризуем)
+# clock: created here (read_xdc would also work, but the period is parameterized)
 create_clock -name clk -period $clk_ns [get_ports clk]
 
-# --- имплементация ---
+# --- implementation ---
 opt_design
 place_design
 route_design
 
-# --- РЕПОРТЫ (это и есть предмет анализа в docs/report_analysis.md) ---
+# --- REPORTS (these are what docs/report_analysis.md analyzes) ---
 report_timing_summary -file $out_dir/timing_summary.rpt
 report_utilization    -file $out_dir/utilization.rpt
 report_power          -file $out_dir/power.rpt
 report_drc            -file $out_dir/drc.rpt
 
-# --- краткая сводка в stdout: WNS и достижимый f_max ---
+# --- short summary on stdout: WNS and achievable f_max ---
 set wns [get_property SLACK [get_timing_paths -max_paths 1 -nworst 1 -setup]]
 set achieved_ns [expr {$clk_ns - $wns}]
 set fmax_mhz [expr {1000.0 / $achieved_ns}]
 puts "----------------------------------------------------------------"
-puts [format "WNS = %.3f ns   (>=0 => тайминг закрыт)" $wns]
-puts [format "f_max ~ %.1f МГц  (при периоде %.2f нс, WNS %.3f)" $fmax_mhz $clk_ns $wns]
-puts "Ресурсы/питание — в $out_dir/*.rpt (DSP ~ число PE = [expr {$arr_m*$arr_n}])"
+puts [format "WNS = %.3f ns   (>=0 => timing met)" $wns]
+puts [format "f_max ~ %.1f MHz  (period %.2f ns, WNS %.3f)" $fmax_mhz $clk_ns $wns]
+puts "Resources/power in $out_dir/*.rpt (DSP ~ number of PEs = [expr {$arr_m*$arr_n}])"
 puts "----------------------------------------------------------------"
 
-# опционально: чекпойнт для hardware manager / повторного открытия
+# optional: checkpoint for the hardware manager / reopening later
 write_checkpoint -force $out_dir/systolic_routed.dcp

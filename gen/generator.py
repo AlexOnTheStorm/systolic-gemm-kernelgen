@@ -1,17 +1,17 @@
 """
-generator.py — workload-aware генератор конфигураций систолического массива.
+generator.py — workload-aware generator of systolic array configurations.
 
-Дано: GEMM (M, N, K) + бюджет ресурсов (макс. число PE ~ число DSP).
-Порождает: КАНДИДАТ-конфиги массива (ARRAY_M × ARRAY_N) + расписание тайлинга.
+Given: a GEMM (M, N, K) + a resource budget (max number of PEs ~ number of DSPs).
+Produces: CANDIDATE array configs (ARRAY_M × ARRAY_N) + a tiling schedule.
 
-Это «ex6, повзрослевший»: раньше генерили текст спеки, теперь порождаем
-реальные RTL-параметры, которые gen/evaluate.py собирает в Verilator и мерит.
+The output is real RTL parameters, which gen/evaluate.py builds in Verilator
+and measures.
 
-Модель тайлинга: массив ARRAY_M×ARRAY_N считает ОДИН выходной тайл за проход
-(K — потоковая ось). Полный GEMM = сетка тайлов:
-    tiles = ceil(M/ARRAY_M) * ceil(N/ARRAY_N),  каждый стримит K.
-Тайлы идут последовательно на одном массиве (консервативно; перекрытие
-fill/drain соседних тайлов — возможная оптимизация, см. search.py).
+Tiling model: an ARRAY_M×ARRAY_N array computes ONE output tile per pass
+(K is the streaming axis). A full GEMM is a grid of tiles:
+    tiles = ceil(M/ARRAY_M) * ceil(N/ARRAY_N),  each streaming K.
+Tiles run sequentially on one array (conservative; overlapping fill/drain of
+adjacent tiles is a possible optimization, see search.py).
 """
 from __future__ import annotations
 from dataclasses import dataclass
@@ -20,7 +20,7 @@ from math import ceil
 
 @dataclass(frozen=True)
 class Config:
-    """Одна точка пространства дизайна = размер массива и разрядности."""
+    """One point of the design space = array size and bit widths."""
     array_m: int
     array_n: int
     data_width: int = 8
@@ -35,7 +35,7 @@ class Config:
 
 
 def n_tiles(M: int, N: int, cfg: Config) -> int:
-    """Сколько выходных тайлов нужно, чтобы покрыть C[M×N] массивом cfg."""
+    """How many output tiles are needed to cover C[M×N] with array cfg."""
     return ceil(M / cfg.array_m) * ceil(N / cfg.array_n)
 
 
@@ -43,8 +43,8 @@ def enumerate_configs(max_pe: int,
                       dims: tuple[int, ...] = (2, 4, 8, 16, 32),
                       data_width: int = 8) -> list[Config]:
     """
-    Все квадратные и прямоугольные массивы из `dims`, у которых
-    число PE (= число умножителей) влезает в бюджет `max_pe`.
+    All square and rectangular arrays from `dims` whose number of PEs
+    (= number of multipliers) fits the `max_pe` budget.
     """
     out = []
     for m in dims:
@@ -56,7 +56,7 @@ def enumerate_configs(max_pe: int,
 
 
 def neighbours(cfg: Config, dims: tuple[int, ...] = (2, 4, 8, 16, 32)) -> list[Config]:
-    """Соседи по сетке `dims` (шаг вверх/вниз по каждой оси) — для hill-climb."""
+    """Neighbours on the `dims` grid (one step up/down on each axis), for hill-climb."""
     idx_m = dims.index(cfg.array_m) if cfg.array_m in dims else None
     idx_n = dims.index(cfg.array_n) if cfg.array_n in dims else None
     res = []

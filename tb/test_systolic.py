@@ -1,16 +1,16 @@
 """
-cocotb self-checking TB для systolic_array (output-stationary, INT8·INT8->INT32).
+cocotb self-checking TB for systolic_array (output-stationary, INT8·INT8->INT32).
 
-Идиома — как в practice/ex7_fifo_cocotb: cocotb + Verilator, driver/scoreboard,
-coverage-bins, финальные assert'ы. Отличие: тут проверяем ЧИСЛЕННЫЙ результат
-целого matmul против golden (ref/golden.py), а не потоковый протокол.
+Idiom: cocotb + Verilator, driver/scoreboard, coverage bins, final asserts.
+Here we check the NUMERIC result of a whole matmul against the golden model
+(ref/golden.py), not a streaming protocol.
 
-Ключевая механика — систолический SKEW подачи (см. systolic_array.sv):
-  на такте t в строку i подаём A[i][t-i], в столбец j подаём B[t-j][j]
-  (нули вне окна). После дренажа все acc(i,j) = C[i][j].
+The key mechanism is the systolic feed SKEW (see systolic_array.sv):
+  on cycle t row i gets A[i][t-i], column j gets B[t-j][j]
+  (zeros outside the window). After the drain every acc(i,j) = C[i][j].
 
-Параметры массива фиксированы под дефолты RTL (ARRAY_M=ARRAY_N=4). Makefile
-может переопределить их через -G и здесь; для v1 держим 4×4.
+The array parameters default to the RTL defaults (ARRAY_M=ARRAY_N=4). The Makefile
+can override them via -G and the environment; v1 keeps 4×4.
 """
 import os
 import sys
@@ -20,11 +20,11 @@ import cocotb
 from cocotb.clock import Clock
 from cocotb.triggers import RisingEdge, ReadOnly
 
-# подключаем golden из соседней папки ref/
+# pull in the golden model from the sibling ref/ directory
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "ref"))
 from golden import matmul_ref, rand_int8_matrix, acc_fits_int32  # noqa: E402
 
-# --- геометрия массива (должна совпадать с параметрами RTL) ---
+# --- array geometry (must match the RTL parameters) ---
 M = int(os.environ.get("ARRAY_M", 4))
 N = int(os.environ.get("ARRAY_N", 4))
 DW = int(os.environ.get("DATA_WIDTH", 8))
@@ -32,12 +32,12 @@ ACC = int(os.environ.get("ACC_WIDTH", 32))
 
 
 def to_signed(val: int, bits: int) -> int:
-    """Двоичное дополнение -> знаковое int."""
+    """Two's complement -> signed int."""
     return val - (1 << bits) if (val & (1 << (bits - 1))) else val
 
 
 def pack_edge(vals: list[int]) -> int:
-    """Список знаковых значений -> плоская шина (по DW бит на элемент)."""
+    """List of signed values -> flat bus (DW bits per element)."""
     word = 0
     mask = (1 << DW) - 1
     for idx, v in enumerate(vals):
@@ -58,12 +58,12 @@ async def reset_dut(dut):
 
 async def run_matmul(dut, A: list[list[int]], B: list[list[int]]) -> list[list[int]]:
     """
-    Прогнать один matmul A[M×K]·B[K×N] через массив с систолическим skew.
-    Возвращает считанные acc(i,j) как список списков (знаковые int).
+    Run one matmul A[M×K]·B[K×N] through the array with the systolic skew.
+    Returns the read-back acc(i,j) as a list of lists (signed ints).
     """
     K = len(A[0])
 
-    # старт нового matmul: 1 такт clear (обнулить acc), входы = 0
+    # start a new matmul: 1 cycle of clear (zero acc), inputs = 0
     await RisingEdge(dut.clk)
     dut.clear.value = 1
     dut.en.value = 0
@@ -73,9 +73,9 @@ async def run_matmul(dut, A: list[list[int]], B: list[list[int]]) -> list[list[i
     dut.clear.value = 0
     dut.en.value = 1
 
-    # подача со skew + дренаж нулями (en держим 1; нулевые произведения безвредны).
-    # запас +6 покрывает волновой фронт И латентность конвейера MAC в PE (+2 такта,
-    # см. pe.sv): последнее произведение должно дойти до acc, пока en=1.
+    # skewed feed + drain with zeros (en stays 1; zero products are harmless).
+    # the +6 margin covers the wavefront AND the MAC pipeline latency in the PE (+2 cycles,
+    # see pe.sv): the last product must reach acc while en=1.
     total = K + M + N + 6
     for t in range(total):
         a_edge = [A[i][t - i] if 0 <= (t - i) < K else 0 for i in range(M)]
@@ -84,7 +84,7 @@ async def run_matmul(dut, A: list[list[int]], B: list[list[int]]) -> list[list[i
         dut.b_in_flat.value = pack_edge(b_edge)
         await RisingEdge(dut.clk)
 
-    # ещё несколько тактов на прокачку конвейера последнего MAC, входы 0
+    # a few more cycles to flush the last MAC through the pipeline, inputs 0
     dut.a_in_flat.value = 0
     dut.b_in_flat.value = 0
     for _ in range(4):
@@ -111,26 +111,26 @@ async def test_systolic_matmul(dut):
     cov = {
         "k_small": 0,          # K <= M
         "k_large": 0,          # K >  M
-        "result_positive": 0,  # хоть один C[i][j] > 0
-        "result_negative": 0,  # хоть один C[i][j] < 0
-        "result_zero_cell": 0, # хоть один C[i][j] == 0
-        "extreme_operand": 0,  # встречался ±128/127 во входах
-        "all_zero_matmul": 0,  # нулевые матрицы (граничный)
+        "result_positive": 0,  # at least one C[i][j] > 0
+        "result_negative": 0,  # at least one C[i][j] < 0
+        "result_zero_cell": 0, # at least one C[i][j] == 0
+        "extreme_operand": 0,  # ±128/127 seen in the inputs
+        "all_zero_matmul": 0,  # all-zero matrices (corner case)
     }
 
-    # набор сценариев: разные K + один нулевой + один экстремальный
+    # scenario set: several K + one all-zero + one extreme
     scenarios = []
     for K in (1, 3, 4, 6, 8):
         scenarios.append((rand_int8_matrix(M, K, rng), rand_int8_matrix(K, N, rng)))
-    # нулевой matmul
+    # all-zero matmul
     scenarios.append(([[0] * 4 for _ in range(M)], [[0] * N for _ in range(4)]))
-    # экстремальные операнды
+    # extreme operands
     scenarios.append(([[127 if k % 2 else -128 for k in range(5)] for _ in range(M)],
                       [[-128 if j % 2 else 127 for j in range(N)] for _ in range(5)]))
 
     for A, B in scenarios:
         K = len(A[0])
-        assert acc_fits_int32(M, N, K), "K слишком большой для INT32-аккумулятора"
+        assert acc_fits_int32(M, N, K), "K too large for the INT32 accumulator"
 
         got = await run_matmul(dut, A, B)
         exp = matmul_ref(A, B)
@@ -153,7 +153,7 @@ async def test_systolic_matmul(dut):
                                       any(v in (-128, 127) for r in B for v in r))
         cov["all_zero_matmul"] += int(all(x == 0 for x in flat))
 
-    # --- отчёт по покрытию (формат как в ex7) ---
+    # --- coverage report ---
     total = len(cov)
     hit = sum(1 for v in cov.values() if v > 0)
     dut._log.info(f"COVERAGE {hit}/{total} bins = {100 * hit // total}%")
