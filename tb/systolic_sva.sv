@@ -10,7 +10,9 @@
 //    3. stage3 (PREG):      acc      == prev(acc) + prev(prod_r)    when en
 //    4. passthrough:        a_out/b_out == prev(a_in)/prev(b_in)    when en
 //    5. clear:              acc/pass-through/whole pipeline == 0    on the next cycle
-//    6. hold:               with !en && !clear acc holds
+//    6. hold:               with !en && !clear EVERY stage holds (a_r/b_r, prod_r,
+//                           acc, a_out/b_out) — not only acc: a PE that kept loading
+//                           operands during a pause would otherwise pass this contract
 //
 //  The per-stage formulation (rather than end-to-end acc==f($past(a_in,3))) is
 //  DELIBERATE: each property is a single-register relation gated by the current en,
@@ -63,8 +65,13 @@ module pe_sva #(
       ( clear |=> (acc == '0 && a_out == '0 && b_out == '0 &&
                    a_r == '0 && b_r == '0 && prod_r == '0) );
 
-  // 6. without en and without clear the state holds
-  a_hold : assert property ( (!en && !clear) |=> acc == $past(acc) );
+  // 6. without en and without clear the whole pipeline holds. Checking acc alone is
+  //    not enough: a mutant that latches a_in into a_r during a pause keeps acc
+  //    frozen and still passes, then corrupts the sum after en returns.
+  a_hold : assert property
+      ( (!en && !clear) |=> (acc   == $past(acc)   && prod_r == $past(prod_r) &&
+                             a_r   == $past(a_r)   && b_r    == $past(b_r)    &&
+                             a_out == $past(a_out) && b_out  == $past(b_out)) );
 
 endmodule
 

@@ -16,6 +16,9 @@ datapath logic is proven in simulation (cocotb AXI memory model); the on-silicon
 
 Written with AI assistance; architecture, specification and verification decisions are mine.
 
+The same RTL (4×4) taken through an open-source RTL-to-GDS flow on SKY130 (LibreLane; not a tape-out):
+[systolic-array-rtl2gds](https://github.com/AlexOnTheStorm/systolic-array-rtl2gds).
+
 ## What's inside
 
 ```

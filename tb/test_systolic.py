@@ -56,11 +56,33 @@ async def reset_dut(dut):
     dut.rst_n.value = 1
 
 
-async def run_matmul(dut, A: list[list[int]], B: list[list[int]]) -> list[list[int]]:
+async def pause(dut, rng, p_pause: float) -> int:
+    """
+    With probability p_pause, drop en for 1-3 cycles and drive RANDOM garbage on both
+    edges: with en=0 the array must ignore its inputs and freeze every stage.
+    Returns the number of pause cycles inserted.
+    """
+    if rng is None or rng.random() >= p_pause:
+        return 0
+    n = rng.randint(1, 3)
+    dut.en.value = 0
+    for _ in range(n):
+        dut.a_in_flat.value = rng.getrandbits(M * DW)
+        dut.b_in_flat.value = rng.getrandbits(N * DW)
+        await RisingEdge(dut.clk)
+    dut.en.value = 1
+    return n
+
+
+async def run_matmul(dut, A: list[list[int]], B: list[list[int]],
+                     rng=None, p_pause: float = 0.0, stats=None) -> list[list[int]]:
     """
     Run one matmul A[M×K]·B[K×N] through the array with the systolic skew.
     Returns the read-back acc(i,j) as a list of lists (signed ints).
+    With rng/p_pause, en drops at random points of the feed and the drain
+    (see pause()); stats["pause_cycles"] counts them.
     """
+    paused = 0
     K = len(A[0])
 
     # start a new matmul: 1 cycle of clear (zero acc), inputs = 0
@@ -80,6 +102,7 @@ async def run_matmul(dut, A: list[list[int]], B: list[list[int]]) -> list[list[i
     for t in range(total):
         a_edge = [A[i][t - i] if 0 <= (t - i) < K else 0 for i in range(M)]
         b_edge = [B[t - j][j] if 0 <= (t - j) < K else 0 for j in range(N)]
+        paused += await pause(dut, rng, p_pause)
         dut.a_in_flat.value = pack_edge(a_edge)
         dut.b_in_flat.value = pack_edge(b_edge)
         await RisingEdge(dut.clk)
@@ -88,8 +111,13 @@ async def run_matmul(dut, A: list[list[int]], B: list[list[int]]) -> list[list[i
     dut.a_in_flat.value = 0
     dut.b_in_flat.value = 0
     for _ in range(4):
+        paused += await pause(dut, rng, p_pause)
+        dut.a_in_flat.value = 0
+        dut.b_in_flat.value = 0
         await RisingEdge(dut.clk)
     await ReadOnly()
+    if stats is not None:
+        stats["pause_cycles"] = stats.get("pause_cycles", 0) + paused
 
     raw = int(dut.c_out_flat.value)
     C = [[0] * N for _ in range(M)]
@@ -165,3 +193,33 @@ async def test_systolic_matmul(dut):
     holes = [n for n, v in cov.items() if v == 0]
     assert not holes, f"coverage holes: {holes}"
     dut._log.info(f"PASS — {stats['checks']} matmuls verified vs golden")
+
+
+@cocotb.test()
+async def test_systolic_en_pause(dut):
+    """
+    Same numeric check, but en drops at random points mid-matmul (30% of feed/drain
+    cycles, 1-3 cycles each) while garbage is driven on the edges. The result must
+    still equal the golden model. Together with a_hold in systolic_sva.sv this
+    closes the stall hole: a PE that keeps loading operands while en=0 fails here.
+    """
+    cocotb.start_soon(Clock(dut.clk, 10, unit="ns").start())
+    await reset_dut(dut)
+    rng = random.Random(0xBADC0DE)
+    stats = {"checks": 0, "errors": 0, "pause_cycles": 0}
+
+    for K in (1, 4, 7, 8):
+        A, B = rand_int8_matrix(M, K, rng), rand_int8_matrix(K, N, rng)
+        assert acc_fits_int32(M, N, K), "K too large for the INT32 accumulator"
+        got = await run_matmul(dut, A, B, rng=rng, p_pause=0.3, stats=stats)
+        exp = matmul_ref(A, B)
+        stats["checks"] += 1
+        if got != exp:
+            stats["errors"] += 1
+            dut._log.error(f"MISMATCH with en pauses K={K}\n got={got}\n exp={exp}")
+        else:
+            dut._log.info(f"ok  K={K} with en pauses")
+
+    assert stats["pause_cycles"] > 0, "no en pause was exercised"
+    assert stats["errors"] == 0, f"{stats['errors']} mismatch(es) of {stats['checks']}"
+    dut._log.info(f"PASS — {stats['checks']} matmuls with {stats['pause_cycles']} pause cycles")
